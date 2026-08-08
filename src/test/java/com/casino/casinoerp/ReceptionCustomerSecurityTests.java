@@ -41,6 +41,23 @@ class ReceptionCustomerSecurityTests {
     }
 
     @Test
+    void receptionistCanSearchCustomers() throws Exception {
+        when(customerService.searchCustomers("CUS-1001")).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/customers/search")
+                        .param("query", "CUS-1001")
+                        .with(user("reception").roles("RECEPTIONIST")))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void receptionistCanGetCustomerByCode() throws Exception {
+        mockMvc.perform(get("/api/customers/CUS-1001")
+                        .with(user("reception").roles("RECEPTIONIST")))
+                .andExpect(status().isOk());
+    }
+
+    @Test
     void unrelatedAuthenticatedRoleCannotListCustomers() throws Exception {
         mockMvc.perform(get("/api/customers").with(user("cashier").roles("CASHIER")))
                 .andExpect(status().isForbidden());

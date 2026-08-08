@@ -40,6 +40,30 @@ public class SecurityConfig {
                                 Role.SUPER_ADMIN.name()
                         )
 
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/wallets", "/api/wallets/**",
+                                "/api/wallet-transactions", "/api/wallet-transactions/**",
+                                "/api/buyins", "/api/buyins/**",
+                                "/api/cashouts", "/api/cashouts/**"
+                        )
+                        .hasAnyRole(
+                                Role.CASHIER.name(),
+                                Role.DIRECTOR.name(),
+                                Role.SUPER_ADMIN.name()
+                        )
+
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/customer-report", "/api/customer-report/**",
+                                "/api/customer-tier", "/api/customer-tier/**",
+                                "/api/customer-value-report", "/api/customer-value-report/**",
+                                "/api/daily-customer-value", "/api/daily-customer-value/**",
+                                "/api/customer-services", "/api/customer-services/**",
+                                "/api/customer-service-report", "/api/customer-service-report/**"
+                        )
+                        .hasAnyRole(Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())
+
                         .requestMatchers(HttpMethod.POST, "/api/sessions", "/api/sessions/*/close")
                         .hasAnyRole(Role.RECEPTIONIST.name(), Role.SUPER_ADMIN.name())
 
