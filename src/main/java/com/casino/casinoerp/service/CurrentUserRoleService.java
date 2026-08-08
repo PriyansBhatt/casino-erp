@@ -2,11 +2,13 @@ package com.casino.casinoerp.service;
 
 import com.casino.casinoerp.entity.User;
 import com.casino.casinoerp.repository.UserRepository;
+import com.casino.casinoerp.security.Role;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 import java.util.UUID;
+import java.util.Optional;
 
 @Service
 public class CurrentUserRoleService {
@@ -18,18 +20,24 @@ public class CurrentUserRoleService {
     }
 
     public String getCurrentUserRole() {
+        return getCurrentRole()
+                .map(Role::name)
+                .orElse("UNKNOWN");
+    }
+
+    public Optional<Role> getCurrentRole() {
         Authentication authentication =
                 SecurityContextHolder.getContext().getAuthentication();
 
         if (authentication == null || authentication.getAuthorities().isEmpty()) {
-            return "UNKNOWN";
+            return Optional.empty();
         }
 
         return authentication.getAuthorities()
                 .iterator()
                 .next()
                 .getAuthority()
-                .replace("ROLE_", "");
+                .transform(Role::fromAuthority);
     }
 
     public UUID getCurrentUserId() {

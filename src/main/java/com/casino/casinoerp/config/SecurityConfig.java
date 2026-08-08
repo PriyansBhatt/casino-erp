@@ -1,5 +1,6 @@
 package com.casino.casinoerp.config;
 
+import com.casino.casinoerp.security.Role;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -30,16 +31,24 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/login", "/api/health").permitAll()
 
                         .requestMatchers(HttpMethod.GET, "/api/users", "/api/users/**")
-                        .hasRole("SUPER_ADMIN")
+                        .hasRole(Role.SUPER_ADMIN.name())
 
                         .requestMatchers("/api/system-lock/**")
-                        .hasRole("SUPER_ADMIN")
+                        .hasRole(Role.SUPER_ADMIN.name())
 
                         .requestMatchers("/api/audit-logs/**")
-                        .hasAnyRole("SUPER_ADMIN", "COMPLIANCE_OFFICER", "SURVEILLANCE_OFFICER")
+                        .hasAnyRole(
+                                Role.SUPER_ADMIN.name(),
+                                Role.COMPLIANCE_OFFICER.name(),
+                                Role.SURVEILLANCE_OFFICER.name()
+                        )
 
                         .requestMatchers("/api/alerts/**")
-                        .hasAnyRole("SUPER_ADMIN", "DIRECTOR", "SURVEILLANCE_OFFICER")
+                        .hasAnyRole(
+                                Role.SUPER_ADMIN.name(),
+                                Role.DIRECTOR.name(),
+                                Role.SURVEILLANCE_OFFICER.name()
+                        )
 
                         .requestMatchers(
                                 HttpMethod.POST,
@@ -47,7 +56,7 @@ public class SecurityConfig {
                                 "/api/business-date/close/**",
                                 "/api/business-date/reopen/**"
                         )
-                        .hasAnyRole("SUPER_ADMIN", "DIRECTOR")
+                        .hasAnyRole(Role.SUPER_ADMIN.name(), Role.DIRECTOR.name())
 
                         .requestMatchers(HttpMethod.GET, "/api/business-date", "/api/business-date/**")
                         .authenticated()

@@ -172,9 +172,9 @@ public class BusinessDateService {
     }
 
     private void validateBusinessDateLifecycleRole() {
-        String role = currentUserRoleService.getCurrentUserRole();
-
-        if (!rolePermissionService.canManageBusinessDate(role)) {
+        if (!currentUserRoleService.getCurrentRole()
+                .map(rolePermissionService::canManageBusinessDate)
+                .orElse(false)) {
             throw new RuntimeException(
                     "Access denied. Only Director or Super Admin can manage business dates."
             );

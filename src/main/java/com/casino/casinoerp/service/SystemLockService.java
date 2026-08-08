@@ -14,12 +14,15 @@ public class SystemLockService {
             LocalTime.of(12, 30);
 
     private final CurrentUserRoleService currentUserRoleService;
+    private final RolePermissionService rolePermissionService;
     private final AuditLogService auditLogService;
     private boolean systemLocked = false;
 
     public SystemLockService(CurrentUserRoleService currentUserRoleService,
+                             RolePermissionService rolePermissionService,
                              AuditLogService auditLogService) {
         this.currentUserRoleService = currentUserRoleService;
+        this.rolePermissionService = rolePermissionService;
         this.auditLogService = auditLogService;
     }
 
@@ -34,12 +37,7 @@ public class SystemLockService {
     }
 
     public void lockSystem() {
-        String role = currentUserRoleService.getCurrentUserRole();
-
-        if (!role.equalsIgnoreCase("Super Admin")
-                && !role.equalsIgnoreCase("SUPER_ADMIN")) {
-            throw new RuntimeException("Only Super Admin can lock system.");
-        }
+        validatePermission("Only Super Admin can lock system.");
 
         this.systemLocked = true;
 
@@ -53,12 +51,7 @@ public class SystemLockService {
     }
 
     public void unlockSystem() {
-        String role = currentUserRoleService.getCurrentUserRole();
-
-        if (!role.equalsIgnoreCase("Super Admin")
-                && !role.equalsIgnoreCase("SUPER_ADMIN")) {
-            throw new RuntimeException("Only Super Admin can unlock system.");
-        }
+        validatePermission("Only Super Admin can unlock system.");
 
         this.systemLocked = false;
 
@@ -73,13 +66,14 @@ public class SystemLockService {
 
 
     public void validateLockUnlockPermission() {
-        String role = currentUserRoleService.getCurrentUserRole();
+        validatePermission("Only Super Admin can lock/unlock system.");
+    }
 
-        if (!role.equalsIgnoreCase("Super Admin")
-                && !role.equalsIgnoreCase("SUPER_ADMIN")) {
-            throw new RuntimeException(
-                    "Only Super Admin can lock/unlock system."
-            );
+    private void validatePermission(String message) {
+        if (!currentUserRoleService.getCurrentRole()
+                .map(rolePermissionService::canUseSystemLock)
+                .orElse(false)) {
+            throw new RuntimeException(message);
         }
     }
 }

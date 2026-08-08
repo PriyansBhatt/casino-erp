@@ -1,5 +1,6 @@
 package com.casino.casinoerp.config;
 
+import com.casino.casinoerp.security.Role;
 import com.casino.casinoerp.service.JwtService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -13,6 +14,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Optional;
 
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
@@ -40,14 +42,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String token = authHeader.substring(7);
 
         String username = jwtService.extractUsername(token);
-        String role = jwtService.extractRole(token);
+        Optional<Role> role = Role.fromValue(jwtService.extractRole(token));
 
-        if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+        if (username != null
+                && role.isPresent()
+                && SecurityContextHolder.getContext().getAuthentication() == null) {
             UsernamePasswordAuthenticationToken authentication =
                     new UsernamePasswordAuthenticationToken(
                             username,
                             null,
-                            List.of(new SimpleGrantedAuthority("ROLE_" + role))
+                            List.of(new SimpleGrantedAuthority(role.get().authority()))
                     );
 
             SecurityContextHolder.getContext().setAuthentication(authentication);
