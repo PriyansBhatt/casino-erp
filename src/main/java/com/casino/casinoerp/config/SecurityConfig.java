@@ -2,6 +2,7 @@ package com.casino.casinoerp.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
@@ -28,6 +29,9 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/login", "/api/health").permitAll()
 
+                        .requestMatchers(HttpMethod.GET, "/api/users", "/api/users/**")
+                        .hasRole("SUPER_ADMIN")
+
                         .requestMatchers("/api/system-lock/**")
                         .hasRole("SUPER_ADMIN")
 
@@ -37,8 +41,16 @@ public class SecurityConfig {
                         .requestMatchers("/api/alerts/**")
                         .hasAnyRole("SUPER_ADMIN", "DIRECTOR", "SURVEILLANCE_OFFICER")
 
-                        .requestMatchers("/api/business-date/**")
-                        .hasAnyRole("SUPER_ADMIN", "DIRECTOR", "ACCOUNT_MANAGER")
+                        .requestMatchers(
+                                HttpMethod.POST,
+                                "/api/business-date/open/**",
+                                "/api/business-date/close/**",
+                                "/api/business-date/reopen/**"
+                        )
+                        .hasAnyRole("SUPER_ADMIN", "DIRECTOR")
+
+                        .requestMatchers(HttpMethod.GET, "/api/business-date", "/api/business-date/**")
+                        .authenticated()
 
                         .anyRequest().authenticated()
                 )

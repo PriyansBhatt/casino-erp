@@ -1,5 +1,6 @@
 package com.casino.casinoerp.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.Data;
 import java.time.LocalDateTime;
@@ -15,6 +16,7 @@ public class User {
 
     private String username;
 
+    @JsonIgnore
     @Column(name = "password_hash")
     private String passwordHash;
 

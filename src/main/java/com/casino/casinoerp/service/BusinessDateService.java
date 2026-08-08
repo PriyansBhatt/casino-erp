@@ -75,6 +75,8 @@ public class BusinessDateService {
 
     public BusinessDate openBusinessDate(LocalDate businessDate, String remarks) {
 
+        validateBusinessDateLifecycleRole();
+
         if (!businessDateRepository.findByStatus("OPEN").isEmpty()) {
             throw new RuntimeException("Another business date is already OPEN.");
         }
@@ -104,13 +106,7 @@ public class BusinessDateService {
 
     public BusinessDate closeBusinessDate(LocalDate businessDate) {
 
-        String role = currentUserRoleService.getCurrentUserRole();
-
-        if (!rolePermissionService.canCloseBusinessDate(role)) {
-            throw new RuntimeException(
-                    "Access denied. Only Manager or Super Admin can close business date."
-            );
-        }
+        validateBusinessDateLifecycleRole();
 
         BusinessDate bd = businessDateRepository
                 .findByBusinessDate(businessDate)
@@ -144,6 +140,8 @@ public class BusinessDateService {
 
     public BusinessDate reopenBusinessDate(LocalDate businessDate, String remarks) {
 
+        validateBusinessDateLifecycleRole();
+
         if (!businessDateRepository.findByStatus("OPEN").isEmpty()) {
             throw new RuntimeException("Another business date is already OPEN.");
         }
@@ -171,5 +169,15 @@ public class BusinessDateService {
         );
 
         return saved;
+    }
+
+    private void validateBusinessDateLifecycleRole() {
+        String role = currentUserRoleService.getCurrentUserRole();
+
+        if (!rolePermissionService.canManageBusinessDate(role)) {
+            throw new RuntimeException(
+                    "Access denied. Only Director or Super Admin can manage business dates."
+            );
+        }
     }
 }

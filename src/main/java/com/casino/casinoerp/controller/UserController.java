@@ -1,6 +1,6 @@
 package com.casino.casinoerp.controller;
 
-import com.casino.casinoerp.entity.User;
+import com.casino.casinoerp.dto.UserResponse;
 import com.casino.casinoerp.service.UserService;
 import org.springframework.web.bind.annotation.*;
 
@@ -17,7 +17,7 @@ public class UserController {
     }
 
     @GetMapping
-    public List<User> getAllUsers() {
+    public List<UserResponse> getAllUsers() {
         return userService.getAllUsers();
     }
 }

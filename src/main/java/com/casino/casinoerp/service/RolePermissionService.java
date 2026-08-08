@@ -26,9 +26,9 @@ public class RolePermissionService {
                 || "Dealer".equalsIgnoreCase(roleName);
     }
 
-    public boolean canCloseBusinessDate(String roleName) {
-        return isSuperAdmin(roleName)
-                || "Manager".equalsIgnoreCase(roleName);
+    public boolean canManageBusinessDate(String roleName) {
+        return "SUPER_ADMIN".equals(roleName)
+                || "DIRECTOR".equals(roleName);
     }
 
     public boolean canViewAuditLogs(String roleName) {
