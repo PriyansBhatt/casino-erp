@@ -1,6 +1,6 @@
 package com.casino.casinoerp.controller;
 
-import com.casino.casinoerp.entity.Customer;
+import com.casino.casinoerp.dto.ReceptionCustomerResponse;
 import com.casino.casinoerp.service.CustomerService;
 import org.springframework.web.bind.annotation.*;
 
@@ -17,11 +17,17 @@ public class CustomerController {
     }
 
     @GetMapping
-    public List<Customer> getAllCustomers() {
+    public List<ReceptionCustomerResponse> getAllCustomers() {
         return customerService.getAllCustomers();
     }
+
+    @GetMapping("/search")
+    public List<ReceptionCustomerResponse> searchCustomers(@RequestParam String query) {
+        return customerService.searchCustomers(query);
+    }
+
     @GetMapping("/{customerCode}")
-    public Customer getCustomer(@PathVariable String customerCode) {
+    public ReceptionCustomerResponse getCustomer(@PathVariable String customerCode) {
         return customerService.getCustomerByCode(customerCode);
     }
 }

@@ -8,6 +8,12 @@ import java.util.function.Predicate;
 @Service
 public class RolePermissionService {
 
+    public boolean canLookupReceptionCustomers(Role role) {
+        return role == Role.RECEPTIONIST
+                || role == Role.DIRECTOR
+                || role == Role.SUPER_ADMIN;
+    }
+
     public boolean canCreateSession(String roleName) {
         return withRole(roleName, this::canCreateSession);
     }

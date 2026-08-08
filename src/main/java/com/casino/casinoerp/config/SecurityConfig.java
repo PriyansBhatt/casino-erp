@@ -33,6 +33,23 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/users", "/api/users/**")
                         .hasRole(Role.SUPER_ADMIN.name())
 
+                        .requestMatchers(HttpMethod.GET, "/api/customers", "/api/customers/**")
+                        .hasAnyRole(
+                                Role.RECEPTIONIST.name(),
+                                Role.DIRECTOR.name(),
+                                Role.SUPER_ADMIN.name()
+                        )
+
+                        .requestMatchers(HttpMethod.POST, "/api/sessions", "/api/sessions/*/close")
+                        .hasAnyRole(Role.RECEPTIONIST.name(), Role.SUPER_ADMIN.name())
+
+                        .requestMatchers(HttpMethod.GET, "/api/sessions", "/api/sessions/**")
+                        .hasAnyRole(
+                                Role.RECEPTIONIST.name(),
+                                Role.DIRECTOR.name(),
+                                Role.SUPER_ADMIN.name()
+                        )
+
                         .requestMatchers("/api/system-lock/**")
                         .hasRole(Role.SUPER_ADMIN.name())
 

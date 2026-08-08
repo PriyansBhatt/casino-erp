@@ -1,10 +1,17 @@
 package com.casino.casinoerp.service;
 
+import com.casino.casinoerp.dto.ReceptionSessionResponse;
+import com.casino.casinoerp.entity.Customer;
 import com.casino.casinoerp.entity.CustomerSession;
+import com.casino.casinoerp.exception.ResourceNotFoundException;
 import com.casino.casinoerp.repository.CustomerSessionRepository;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Locale;
+import java.util.UUID;
 
 @Service
 public class CustomerSessionService {
@@ -15,6 +22,7 @@ public class CustomerSessionService {
     private final AuditLogService auditLogService;
     private final RolePermissionService rolePermissionService;
     private final CurrentUserRoleService currentUserRoleService;
+    private final CustomerService customerService;
 
     public CustomerSessionService(
             CustomerSessionRepository repository,
@@ -22,7 +30,8 @@ public class CustomerSessionService {
             SystemLockService systemLockService,
             AuditLogService auditLogService,
             RolePermissionService rolePermissionService,
-            CurrentUserRoleService currentUserRoleService) {
+            CurrentUserRoleService currentUserRoleService,
+            CustomerService customerService) {
 
         this.repository = repository;
         this.businessDateService = businessDateService;
@@ -30,20 +39,28 @@ public class CustomerSessionService {
         this.auditLogService = auditLogService;
         this.rolePermissionService = rolePermissionService;
         this.currentUserRoleService = currentUserRoleService;
+        this.customerService = customerService;
     }
 
     public List<CustomerSession> getAllSessions() {
         return repository.findAll();
     }
 
-    public CustomerSession save(CustomerSession session) {
+    public List<ReceptionSessionResponse> getAllReceptionSessions() {
+        return getAllSessions()
+                .stream()
+                .map(this::toReceptionResponse)
+                .toList();
+    }
 
-        String role = currentUserRoleService.getCurrentUserRole();
+    public ReceptionSessionResponse openSession(UUID customerId) {
+        validateSessionRole("Access denied. Only Receptionist or Super Admin can create sessions.");
 
-        if (!rolePermissionService.canCreateSession(role)) {
-            throw new RuntimeException(
-                    "Access denied. Only Receptionist or Super Admin can create sessions."
-            );
+        Customer customer = customerService.getRequiredCustomer(customerId);
+        validateCustomerStatus(customer);
+
+        if (repository.existsByCustomerIdAndStatusIgnoreCase(customerId, "OPEN")) {
+            throw new RuntimeException("Customer already has an active session.");
         }
 
         businessDateService.validateBusinessDateIsOpen();
@@ -54,9 +71,20 @@ public class CustomerSessionService {
             );
         }
 
-        session.setBusinessDate(
-                businessDateService.getCurrentBusinessDate()
-        );
+        LocalDate businessDate = businessDateService.getCurrentBusinessDate();
+        LocalDateTime now = LocalDateTime.now();
+        UUID sessionId = UUID.randomUUID();
+
+        CustomerSession session = new CustomerSession();
+        session.setId(sessionId);
+        session.setSessionCode(generateSessionCode(businessDate, sessionId));
+        session.setCustomerId(customerId);
+        session.setSessionDate(businessDate);
+        session.setEntryTime(now);
+        session.setStatus("OPEN");
+        session.setOpenedBy(currentUserRoleService.getCurrentUserId());
+        session.setBusinessDate(businessDate);
+        session.setCreatedAt(now);
 
         CustomerSession saved = repository.save(session);
 
@@ -68,18 +96,11 @@ public class CustomerSessionService {
                 "Customer session created: " + saved.getSessionCode()
         );
 
-        return saved;
+        return toReceptionResponse(saved);
     }
     
-    public CustomerSession closeSession(java.util.UUID sessionId) {
-
-        String role = currentUserRoleService.getCurrentUserRole();
-
-        if (!rolePermissionService.canCreateSession(role)) {
-            throw new RuntimeException(
-                    "Access denied. Only Receptionist or Super Admin can close sessions."
-            );
-        }
+    public ReceptionSessionResponse closeSession(UUID sessionId) {
+        validateSessionRole("Access denied. Only Receptionist or Super Admin can close sessions.");
 
         businessDateService.validateBusinessDateIsOpen();
 
@@ -90,14 +111,19 @@ public class CustomerSessionService {
         }
 
         CustomerSession session = repository.findById(sessionId)
-                .orElseThrow(() -> new RuntimeException("Customer session not found."));
+                .orElseThrow(() -> new ResourceNotFoundException("Customer session not found."));
 
         if ("CLOSED".equalsIgnoreCase(session.getStatus())) {
             throw new RuntimeException("Customer session is already CLOSED.");
         }
 
+        if (!"OPEN".equalsIgnoreCase(session.getStatus())) {
+            throw new RuntimeException("Only an OPEN customer session can be closed.");
+        }
+
         session.setStatus("CLOSED");
-        session.setExitTime(java.time.LocalDateTime.now());
+        session.setExitTime(LocalDateTime.now());
+        session.setClosedBy(currentUserRoleService.getCurrentUserId());
 
         CustomerSession saved = repository.save(session);
 
@@ -109,7 +135,61 @@ public class CustomerSessionService {
                 "Customer session closed: " + saved.getSessionCode()
         );
 
-        return saved;
+        return toReceptionResponse(saved);
+    }
+
+    public ReceptionSessionResponse getActiveSession(UUID customerId) {
+        customerService.getRequiredCustomer(customerId);
+
+        CustomerSession session = repository
+                .findFirstByCustomerIdAndStatusIgnoreCase(customerId, "OPEN")
+                .orElseThrow(() -> new ResourceNotFoundException("Active customer session not found."));
+
+        return toReceptionResponse(session);
+    }
+
+    private void validateSessionRole(String message) {
+        if (!currentUserRoleService.getCurrentRole()
+                .map(rolePermissionService::canCreateSession)
+                .orElse(false)) {
+            throw new RuntimeException(message);
+        }
+    }
+
+    private void validateCustomerStatus(Customer customer) {
+        if (customer.getStatus() == null) {
+            return;
+        }
+
+        String status = customer.getStatus().trim().toUpperCase(Locale.ROOT);
+        if (status.equals("BLOCKED") || status.equals("INACTIVE")) {
+            throw new RuntimeException(
+                    "Customer status " + status + " does not allow an active session."
+            );
+        }
+    }
+
+    private String generateSessionCode(LocalDate businessDate, UUID sessionId) {
+        return "SES-"
+                + businessDate.toString().replace("-", "")
+                + "-"
+                + sessionId.toString().substring(0, 8).toUpperCase(Locale.ROOT);
+    }
+
+    private ReceptionSessionResponse toReceptionResponse(CustomerSession session) {
+        return new ReceptionSessionResponse(
+                session.getId(),
+                session.getSessionCode(),
+                session.getCustomerId(),
+                session.getSessionDate(),
+                session.getEntryTime(),
+                session.getExitTime(),
+                session.getStatus(),
+                session.getOpenedBy(),
+                session.getClosedBy(),
+                session.getBusinessDate(),
+                session.getRemarks()
+        );
     }
 
 }

@@ -57,4 +57,12 @@ class RolePermissionServiceTests {
         assertThat(rolePermissionService.canBuyIn("UNKNOWN_ROLE")).isFalse();
         assertThat(rolePermissionService.canViewAuditLogs("UNKNOWN_ROLE")).isFalse();
     }
+
+    @Test
+    void receptionCustomerLookupUsesOnlyApprovedRoles() {
+        assertThat(rolePermissionService.canLookupReceptionCustomers(Role.RECEPTIONIST)).isTrue();
+        assertThat(rolePermissionService.canLookupReceptionCustomers(Role.DIRECTOR)).isTrue();
+        assertThat(rolePermissionService.canLookupReceptionCustomers(Role.SUPER_ADMIN)).isTrue();
+        assertThat(rolePermissionService.canLookupReceptionCustomers(Role.CASHIER)).isFalse();
+    }
 }
