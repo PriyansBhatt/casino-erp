@@ -33,6 +33,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/users", "/api/users/**")
                         .hasRole(Role.SUPER_ADMIN.name())
 
+                        .requestMatchers(HttpMethod.GET, "/api/customers/id/**")
+                        .hasAnyRole(Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())
+
                         .requestMatchers(HttpMethod.GET, "/api/customers", "/api/customers/**")
                         .hasAnyRole(
                                 Role.RECEPTIONIST.name(),

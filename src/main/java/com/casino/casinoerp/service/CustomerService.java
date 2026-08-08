@@ -1,5 +1,6 @@
 package com.casino.casinoerp.service;
 
+import com.casino.casinoerp.dto.PrivilegedCustomerResponse;
 import com.casino.casinoerp.dto.ReceptionCustomerResponse;
 import com.casino.casinoerp.entity.Customer;
 import com.casino.casinoerp.exception.ResourceNotFoundException;
@@ -53,8 +54,25 @@ public class CustomerService {
                 .orElseThrow(() -> new ResourceNotFoundException("Customer not found."));
     }
 
+    public PrivilegedCustomerResponse getPrivilegedCustomerById(UUID customerId) {
+        return customerRepository.findById(customerId)
+                .map(this::toPrivilegedResponse)
+                .orElseThrow(() -> new ResourceNotFoundException("Customer not found."));
+    }
+
     private ReceptionCustomerResponse toReceptionResponse(Customer customer) {
         return new ReceptionCustomerResponse(
+                customer.getId(),
+                customer.getCustomerCode(),
+                customer.getFullName(),
+                customer.getPhone(),
+                customer.getNationality(),
+                customer.getStatus()
+        );
+    }
+
+    private PrivilegedCustomerResponse toPrivilegedResponse(Customer customer) {
+        return new PrivilegedCustomerResponse(
                 customer.getId(),
                 customer.getCustomerCode(),
                 customer.getFullName(),

@@ -1,5 +1,6 @@
 package com.casino.casinoerp;
 
+import com.casino.casinoerp.dto.PrivilegedCustomerResponse;
 import com.casino.casinoerp.dto.ReceptionCustomerResponse;
 import com.casino.casinoerp.entity.Customer;
 import com.casino.casinoerp.exception.ResourceNotFoundException;
@@ -50,6 +51,50 @@ class CustomerServiceTests {
         when(repository.findByCustomerCode("MISSING")).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.getCustomerByCode("MISSING"))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessage("Customer not found.");
+    }
+
+    @Test
+    void findsCustomerByCodeAndReturnsReceptionSafeData() {
+        Customer customer = customer("CUS-1001", "Rina Rai", "+9779800000000", "ACTIVE");
+        when(repository.findByCustomerCode("CUS-1001")).thenReturn(Optional.of(customer));
+
+        ReceptionCustomerResponse result = service.getCustomerByCode("CUS-1001");
+
+        assertThat(result).isEqualTo(new ReceptionCustomerResponse(
+                customer.getId(),
+                "CUS-1001",
+                "Rina Rai",
+                "+9779800000000",
+                "Nepali",
+                "ACTIVE"
+        ));
+    }
+
+    @Test
+    void findsCustomerByUuidAndMapsPrivilegedDetail() {
+        Customer customer = customer("CUS-1001", "Rina Rai", "+9779800000000", "ACTIVE");
+        when(repository.findById(customer.getId())).thenReturn(Optional.of(customer));
+
+        PrivilegedCustomerResponse result = service.getPrivilegedCustomerById(customer.getId());
+
+        assertThat(result).isEqualTo(new PrivilegedCustomerResponse(
+                customer.getId(),
+                "CUS-1001",
+                "Rina Rai",
+                "+9779800000000",
+                "Nepali",
+                "ACTIVE"
+        ));
+    }
+
+    @Test
+    void missingCustomerUuidReturnsNotFound() {
+        UUID customerId = UUID.randomUUID();
+        when(repository.findById(customerId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.getPrivilegedCustomerById(customerId))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessage("Customer not found.");
     }
