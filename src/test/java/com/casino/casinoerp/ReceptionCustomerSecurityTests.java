@@ -53,6 +53,36 @@ class ReceptionCustomerSecurityTests {
     }
 
     @Test
+    void receptionCustomerResponseIncludesVisitSummaryWithoutFinancialFields() throws Exception {
+        UUID activeSessionId = UUID.fromString("00000000-0000-0000-0000-000000000002");
+        when(customerService.getAllCustomers()).thenReturn(List.of(new ReceptionCustomerResponse(
+                CUSTOMER_ID,
+                "CUS-1001",
+                "Rina Rai",
+                "+9779800000000",
+                "Nepali",
+                "ACTIVE",
+                3,
+                java.time.LocalDate.of(2026, 8, 8),
+                java.time.LocalDateTime.of(2026, 8, 8, 22, 30),
+                true,
+                activeSessionId
+        )));
+
+        mockMvc.perform(get("/api/customers").with(user("reception").roles("RECEPTIONIST")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].totalVisits").value(3))
+                .andExpect(jsonPath("$[0].lastVisitBusinessDate").value("2026-08-08"))
+                .andExpect(jsonPath("$[0].lastEntryTime").value("2026-08-08T22:30:00"))
+                .andExpect(jsonPath("$[0].hasActiveSession").value(true))
+                .andExpect(jsonPath("$[0].activeSessionId").value(activeSessionId.toString()))
+                .andExpect(jsonPath("$[0].totalBuyIn").doesNotExist())
+                .andExpect(jsonPath("$[0].totalCashOut").doesNotExist())
+                .andExpect(jsonPath("$[0].wallet").doesNotExist())
+                .andExpect(jsonPath("$[0].tier").doesNotExist());
+    }
+
+    @Test
     void receptionistCanSearchCustomers() throws Exception {
         when(customerService.searchCustomers("CUS-1001")).thenReturn(List.of());
 
@@ -182,7 +212,12 @@ class ReceptionCustomerSecurityTests {
                 "Rina Rai",
                 "+9779800000000",
                 "Nepali",
-                "ACTIVE"
+                "ACTIVE",
+                0,
+                null,
+                null,
+                false,
+                null
         );
     }
 
@@ -194,7 +229,12 @@ class ReceptionCustomerSecurityTests {
                         "Rina Rai",
                         "+9779800000001",
                         "Nepali",
-                        "ACTIVE"
+                        "ACTIVE",
+                        0,
+                        null,
+                        null,
+                        false,
+                        null
                 ));
     }
 
