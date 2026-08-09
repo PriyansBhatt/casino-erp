@@ -1,9 +1,13 @@
 package com.casino.casinoerp.controller;
 
+import com.casino.casinoerp.dto.CustomerRegistrationRequest;
 import com.casino.casinoerp.dto.PrivilegedCustomerResponse;
 import com.casino.casinoerp.dto.ReceptionCustomerResponse;
 import com.casino.casinoerp.service.CustomerService;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.http.HttpStatus;
+
+import jakarta.validation.Valid;
 
 import java.util.List;
 import java.util.UUID;
@@ -16,6 +20,13 @@ public class CustomerController {
 
     public CustomerController(CustomerService customerService) {
         this.customerService = customerService;
+    }
+
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public ReceptionCustomerResponse registerCustomer(
+            @Valid @RequestBody CustomerRegistrationRequest request) {
+        return customerService.registerCustomer(request);
     }
 
     @GetMapping

@@ -1,17 +1,22 @@
 package com.casino.casinoerp.service;
 
+import com.casino.casinoerp.dto.CustomerRegistrationRequest;
 import com.casino.casinoerp.dto.PrivilegedCustomerResponse;
 import com.casino.casinoerp.dto.ReceptionCustomerResponse;
 import com.casino.casinoerp.entity.Customer;
 import com.casino.casinoerp.exception.ResourceNotFoundException;
+import com.casino.casinoerp.exception.ResourceConflictException;
 import com.casino.casinoerp.repository.CustomerRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.UUID;
 
 @Service
 public class CustomerService {
+
+    private static final int INITIAL_CUSTOMER_CODE_NUMBER = 1000;
 
     private final CustomerRepository customerRepository;
 
@@ -58,6 +63,48 @@ public class CustomerService {
         return customerRepository.findById(customerId)
                 .map(this::toPrivilegedResponse)
                 .orElseThrow(() -> new ResourceNotFoundException("Customer not found."));
+    }
+
+    @Transactional
+    public synchronized ReceptionCustomerResponse registerCustomer(CustomerRegistrationRequest request) {
+        String normalizedPhone = normalizePhone(request.phone());
+
+        if (customerRepository.existsByNormalizedPhone(normalizedPhone)) {
+            throw new ResourceConflictException("Customer with this phone already exists.");
+        }
+
+        Customer customer = new Customer();
+        customer.setId(UUID.randomUUID());
+        customer.setCustomerCode(generateCustomerCode());
+        customer.setFullName(normalizeText(request.fullName()));
+        customer.setPhone(normalizedPhone);
+        customer.setNationality(normalizeText(request.nationality()));
+        customer.setStatus("ACTIVE");
+
+        return toReceptionResponse(customerRepository.save(customer));
+    }
+
+    private String generateCustomerCode() {
+        Integer maximumCodeNumber = customerRepository.findMaximumCustomerCodeNumber();
+        int candidateNumber = maximumCodeNumber == null
+                ? INITIAL_CUSTOMER_CODE_NUMBER + 1
+                : maximumCodeNumber + 1;
+        String candidate = "CUS-" + candidateNumber;
+
+        while (customerRepository.existsByCustomerCode(candidate)) {
+            candidateNumber++;
+            candidate = "CUS-" + candidateNumber;
+        }
+
+        return candidate;
+    }
+
+    private String normalizeText(String value) {
+        return value.trim().replaceAll("\\s+", " ");
+    }
+
+    private String normalizePhone(String value) {
+        return value.trim().replaceAll("[\\s-]+", "");
     }
 
     private ReceptionCustomerResponse toReceptionResponse(Customer customer) {

@@ -3,7 +3,10 @@ package com.casino.casinoerp;
 import com.casino.casinoerp.config.JwtAuthenticationFilter;
 import com.casino.casinoerp.config.SecurityConfig;
 import com.casino.casinoerp.controller.CustomerController;
+import com.casino.casinoerp.dto.CustomerRegistrationRequest;
 import com.casino.casinoerp.dto.PrivilegedCustomerResponse;
+import com.casino.casinoerp.dto.ReceptionCustomerResponse;
+import com.casino.casinoerp.exception.ResourceConflictException;
 import com.casino.casinoerp.exception.ResourceNotFoundException;
 import com.casino.casinoerp.service.CustomerService;
 import com.casino.casinoerp.service.JwtService;
@@ -18,8 +21,11 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 
@@ -114,6 +120,61 @@ class ReceptionCustomerSecurityTests {
                 .andExpect(status().isForbidden());
     }
 
+    @Test
+    void receptionistCanRegisterCustomer() throws Exception {
+        stubRegistration();
+
+        performValidRegistration("reception", "RECEPTIONIST")
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    void directorCanRegisterCustomer() throws Exception {
+        stubRegistration();
+
+        performValidRegistration("director", "DIRECTOR")
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    void superAdminCanRegisterCustomer() throws Exception {
+        stubRegistration();
+
+        performValidRegistration("superadmin", "SUPER_ADMIN")
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    void unauthenticatedUserCannotRegisterCustomer() throws Exception {
+        mockMvc.perform(post("/api/customers")
+                        .contentType(APPLICATION_JSON)
+                        .content(validRegistrationJson()))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void invalidRegistrationRequestReturnsBadRequest() throws Exception {
+        mockMvc.perform(post("/api/customers")
+                        .contentType(APPLICATION_JSON)
+                        .content("""
+                                {"fullName":"", "phone":"invalid", "nationality":""}
+                                """)
+                        .with(user("reception").roles("RECEPTIONIST")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false));
+    }
+
+    @Test
+    void duplicatePhoneReturnsConflict() throws Exception {
+        when(customerService.registerCustomer(any(CustomerRegistrationRequest.class)))
+                .thenThrow(new ResourceConflictException("Customer with this phone already exists."));
+
+        performValidRegistration("reception", "RECEPTIONIST")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.message").value("Customer with this phone already exists."));
+    }
+
     private PrivilegedCustomerResponse privilegedCustomer() {
         return new PrivilegedCustomerResponse(
                 CUSTOMER_ID,
@@ -123,5 +184,32 @@ class ReceptionCustomerSecurityTests {
                 "Nepali",
                 "ACTIVE"
         );
+    }
+
+    private void stubRegistration() {
+        when(customerService.registerCustomer(any(CustomerRegistrationRequest.class)))
+                .thenReturn(new ReceptionCustomerResponse(
+                        CUSTOMER_ID,
+                        "CUS-1001",
+                        "Rina Rai",
+                        "+9779800000001",
+                        "Nepali",
+                        "ACTIVE"
+                ));
+    }
+
+    private org.springframework.test.web.servlet.ResultActions performValidRegistration(
+            String username,
+            String role) throws Exception {
+        return mockMvc.perform(post("/api/customers")
+                .contentType(APPLICATION_JSON)
+                .content(validRegistrationJson())
+                .with(user(username).roles(role)));
+    }
+
+    private String validRegistrationJson() {
+        return """
+                {"fullName":"Rina Rai", "phone":"+977-9800 000001", "nationality":"Nepali"}
+                """;
     }
 }

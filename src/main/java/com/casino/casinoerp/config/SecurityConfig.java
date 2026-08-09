@@ -43,6 +43,13 @@ public class SecurityConfig {
                                 Role.SUPER_ADMIN.name()
                         )
 
+                        .requestMatchers(HttpMethod.POST, "/api/customers")
+                        .hasAnyRole(
+                                Role.RECEPTIONIST.name(),
+                                Role.DIRECTOR.name(),
+                                Role.SUPER_ADMIN.name()
+                        )
+
                         .requestMatchers(
                                 HttpMethod.GET,
                                 "/api/wallets", "/api/wallets/**",
