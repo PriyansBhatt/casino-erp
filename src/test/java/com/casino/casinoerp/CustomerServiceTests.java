@@ -4,6 +4,7 @@ import com.casino.casinoerp.dto.CustomerRegistrationRequest;
 import com.casino.casinoerp.dto.PrivilegedCustomerResponse;
 import com.casino.casinoerp.dto.ReceptionCustomerResponse;
 import com.casino.casinoerp.entity.Customer;
+import com.casino.casinoerp.entity.CustomerStatus;
 import com.casino.casinoerp.exception.ResourceNotFoundException;
 import com.casino.casinoerp.exception.ResourceConflictException;
 import com.casino.casinoerp.repository.CustomerRepository;
@@ -243,7 +244,7 @@ class CustomerServiceTests {
         customer.setFullName(name);
         customer.setPhone(phone);
         customer.setNationality("Nepali");
-        customer.setStatus(status);
+        customer.setStatus(CustomerStatus.valueOf(status));
         return customer;
     }
 

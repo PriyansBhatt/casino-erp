@@ -2,6 +2,7 @@ package com.casino.casinoerp.service;
 
 import com.casino.casinoerp.dto.ReceptionSessionResponse;
 import com.casino.casinoerp.entity.Customer;
+import com.casino.casinoerp.entity.CustomerStatus;
 import com.casino.casinoerp.entity.CustomerSession;
 import com.casino.casinoerp.exception.ResourceNotFoundException;
 import com.casino.casinoerp.repository.CustomerSessionRepository;
@@ -161,8 +162,8 @@ public class CustomerSessionService {
             return;
         }
 
-        String status = customer.getStatus().trim().toUpperCase(Locale.ROOT);
-        if (status.equals("BLOCKED") || status.equals("INACTIVE")) {
+        CustomerStatus status = customer.getStatus();
+        if (status == CustomerStatus.BLOCKED || status == CustomerStatus.INACTIVE) {
             throw new RuntimeException(
                     "Customer status " + status + " does not allow an active session."
             );

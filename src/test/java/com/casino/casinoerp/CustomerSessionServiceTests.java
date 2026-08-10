@@ -2,6 +2,7 @@ package com.casino.casinoerp;
 
 import com.casino.casinoerp.dto.ReceptionSessionResponse;
 import com.casino.casinoerp.entity.Customer;
+import com.casino.casinoerp.entity.CustomerStatus;
 import com.casino.casinoerp.entity.CustomerSession;
 import com.casino.casinoerp.exception.ResourceNotFoundException;
 import com.casino.casinoerp.repository.CustomerSessionRepository;
@@ -148,7 +149,7 @@ class CustomerSessionServiceTests {
     private Customer activeCustomer() {
         Customer customer = new Customer();
         customer.setId(customerId);
-        customer.setStatus("ACTIVE");
+        customer.setStatus(CustomerStatus.ACTIVE);
         return customer;
     }
 

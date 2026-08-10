@@ -4,6 +4,9 @@ import com.casino.casinoerp.dto.CustomerRegistrationRequest;
 import com.casino.casinoerp.dto.PrivilegedCustomerResponse;
 import com.casino.casinoerp.dto.ReceptionCustomerResponse;
 import com.casino.casinoerp.entity.Customer;
+import com.casino.casinoerp.entity.CustomerCategory;
+import com.casino.casinoerp.entity.CustomerStatus;
+import com.casino.casinoerp.entity.KycStatus;
 import com.casino.casinoerp.exception.ResourceNotFoundException;
 import com.casino.casinoerp.exception.ResourceConflictException;
 import com.casino.casinoerp.repository.CustomerRepository;
@@ -101,7 +104,9 @@ public class CustomerService {
         customer.setFullName(normalizeText(request.fullName()));
         customer.setPhone(normalizedPhone);
         customer.setNationality(normalizeText(request.nationality()));
-        customer.setStatus("ACTIVE");
+        customer.setStatus(CustomerStatus.ACTIVE);
+        customer.setCategory(CustomerCategory.NORMAL);
+        customer.setKycStatus(KycStatus.PENDING);
 
         return toReceptionResponse(customerRepository.save(customer), Map.of());
     }
@@ -153,7 +158,7 @@ public class CustomerService {
                 customer.getFullName(),
                 customer.getPhone(),
                 customer.getNationality(),
-                customer.getStatus(),
+                customer.getStatus() == null ? null : customer.getStatus().name(),
                 summary == null ? 0 : summary.getTotalVisits(),
                 summary == null ? null : summary.getLastVisitBusinessDate(),
                 summary == null ? null : summary.getLastEntryTime(),
@@ -173,7 +178,7 @@ public class CustomerService {
                 customer.getFullName(),
                 customer.getPhone(),
                 customer.getNationality(),
-                customer.getStatus(),
+                customer.getStatus() == null ? null : customer.getStatus().name(),
                 summary == null ? 0 : summary.getTotalVisits(),
                 summary == null ? null : summary.getLastVisitBusinessDate(),
                 summary == null ? null : summary.getLastEntryTime(),
