@@ -36,6 +36,37 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/customers/id/**")
                         .hasAnyRole(Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())
 
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/customers/{customerId}/kyc/privileged",
+                                "/api/customers/{customerId}/identity-documents"
+                        )
+                        .hasAnyRole(Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())
+
+                        .requestMatchers(HttpMethod.PATCH, "/api/customers/{customerId}/classification")
+                        .hasAnyRole(Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())
+
+                        .requestMatchers(HttpMethod.GET, "/api/customers/{customerId}/kyc")
+                        .hasAnyRole(
+                                Role.RECEPTIONIST.name(),
+                                Role.DIRECTOR.name(),
+                                Role.SUPER_ADMIN.name()
+                        )
+
+                        .requestMatchers(HttpMethod.PATCH, "/api/customers/{customerId}/kyc")
+                        .hasAnyRole(
+                                Role.RECEPTIONIST.name(),
+                                Role.DIRECTOR.name(),
+                                Role.SUPER_ADMIN.name()
+                        )
+
+                        .requestMatchers(HttpMethod.POST, "/api/customers/{customerId}/identity-documents")
+                        .hasAnyRole(
+                                Role.RECEPTIONIST.name(),
+                                Role.DIRECTOR.name(),
+                                Role.SUPER_ADMIN.name()
+                        )
+
                         .requestMatchers(HttpMethod.GET, "/api/customers", "/api/customers/**")
                         .hasAnyRole(
                                 Role.RECEPTIONIST.name(),

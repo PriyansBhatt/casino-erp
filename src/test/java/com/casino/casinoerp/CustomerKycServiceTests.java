@@ -2,6 +2,7 @@ package com.casino.casinoerp;
 
 import com.casino.casinoerp.dto.CustomerKycUpdateRequest;
 import com.casino.casinoerp.dto.IdentityDocumentRequest;
+import com.casino.casinoerp.dto.PrivilegedCustomerClassificationRequest;
 import com.casino.casinoerp.dto.PrivilegedCustomerKycResponse;
 import com.casino.casinoerp.dto.ReceptionCustomerKycResponse;
 import com.casino.casinoerp.entity.Customer;
@@ -95,6 +96,9 @@ class CustomerKycServiceTests {
         assertThat(customer.getEmail()).isEqualTo("customer@example.com");
         assertThat(customer.getOccupation()).isEqualTo("Software Engineer");
         assertThat(customer.getKycStatus()).isEqualTo(KycStatus.PENDING);
+        assertThat(customer.getCategory()).isEqualTo(CustomerCategory.NORMAL);
+        assertThat(customer.getRiskLevel()).isNull();
+        assertThat(customer.getInternalNotes()).isNull();
         assertThat(response.kycStatus()).isEqualTo(KycStatus.PENDING);
     }
 
@@ -251,6 +255,24 @@ class CustomerKycServiceTests {
         assertThat(privileged.getClass().getRecordComponents())
                 .extracting(component -> component.getName())
                 .doesNotContain("financialValues", "gamingProfitability", "serviceCost");
+    }
+
+    @Test
+    void classificationUpdateDoesNotChangeKycOrCustomerStatus() {
+        service.updateClassification(
+                customer.getId(),
+                new PrivilegedCustomerClassificationRequest(
+                        CustomerCategory.VIP,
+                        CustomerRiskLevel.HIGH,
+                        "  Enhanced   review  "
+                )
+        );
+
+        assertThat(customer.getCategory()).isEqualTo(CustomerCategory.VIP);
+        assertThat(customer.getRiskLevel()).isEqualTo(CustomerRiskLevel.HIGH);
+        assertThat(customer.getInternalNotes()).isEqualTo("Enhanced review");
+        assertThat(customer.getKycStatus()).isEqualTo(KycStatus.PENDING);
+        assertThat(customer.getStatus()).isEqualTo(CustomerStatus.ACTIVE);
     }
 
     private Customer customer() {
