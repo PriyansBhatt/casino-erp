@@ -1,13 +1,17 @@
 package com.casino.casinoerp.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
+import lombok.AccessLevel;
 import lombok.Data;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.ToString;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.DecimalMin;
+import org.springframework.data.domain.Persistable;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -17,11 +21,17 @@ import java.time.LocalDate;
 @Data
 @Entity
 @Table(name = "chip_buy_ins", schema = "cashier")
-public class ChipBuyIn {
+public class ChipBuyIn implements Persistable<UUID> {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
+
+    @Transient
+    @Getter(AccessLevel.NONE)
+    @Setter(AccessLevel.NONE)
+    @EqualsAndHashCode.Exclude
+    @ToString.Exclude
+    private boolean newEntity = true;
 
     @NotBlank(message = "Buy-in code is required")
     @Column(name = "buy_in_code")
@@ -36,7 +46,7 @@ public class ChipBuyIn {
     private UUID customerId;
 
     @NotNull(message = "Amount received is required")
-    @DecimalMin(value = "1.00", message = "Amount received must be greater than 0")
+    @DecimalMin(value = "0.01", message = "Amount received must be greater than 0")
     @Column(name = "amount_received")
     private BigDecimal amountReceived;
 
@@ -44,8 +54,11 @@ public class ChipBuyIn {
     @Column(name = "payment_mode")
     private String paymentMode;
 
+    @Column(name = "payment_reference")
+    private String paymentReference;
+
     @NotNull(message = "Total chip value issued is required")
-    @DecimalMin(value = "1.00", message = "Total chip value issued must be greater than 0")
+    @DecimalMin(value = "0.01", message = "Total chip value issued must be greater than 0")
     @Column(name = "total_chip_value_issued")
     private BigDecimal totalChipValueIssued;
 
@@ -64,5 +77,20 @@ public class ChipBuyIn {
     @Column(name = "created_at")
     private LocalDateTime createdAt;
 
+    @Column(name = "idempotency_key")
+    private String idempotencyKey;
+
     private String remarks;
+
+    @Override
+    @JsonIgnore
+    public boolean isNew() {
+        return newEntity;
+    }
+
+    @PostLoad
+    @PostPersist
+    private void markNotNew() {
+        newEntity = false;
+    }
 }

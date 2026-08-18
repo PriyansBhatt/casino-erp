@@ -1,0 +1,16 @@
+package com.casino.casinoerp.dto;
+
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+
+import java.math.BigDecimal;
+import java.util.Map;
+
+public record CashierReconciliationRequest(
+        @NotNull @DecimalMin("0.00") BigDecimal openingCash,
+        @NotNull Map<Integer, Integer> denominations,
+        @Size(max = 1000) String remarks,
+        @NotBlank @Size(max = 100) String idempotencyKey
+) {}

@@ -1,0 +1,12 @@
+package com.casino.casinoerp;
+import com.casino.casinoerp.config.*; import com.casino.casinoerp.controller.LosingReturnController; import com.casino.casinoerp.service.*;
+import org.junit.jupiter.params.ParameterizedTest; import org.junit.jupiter.params.provider.ValueSource; import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest; import org.springframework.context.annotation.Import; import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean; import org.springframework.test.web.servlet.MockMvc;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user; import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*; import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+@WebMvcTest(LosingReturnController.class) @Import({SecurityConfig.class,JwtAuthenticationFilter.class})
+class LosingReturnSecurityTests { @Autowired MockMvc mvc; @MockitoBean LosingReturnService service; @MockitoBean JwtService jwt;
+ @ParameterizedTest @ValueSource(strings={"CASHIER","SUPER_ADMIN"}) void allowedRolesCanReadAndPost(String role)throws Exception{ mvc.perform(get("/api/losing-returns/eligibility/customer/00000000-0000-0000-0000-000000000001").with(user(role).roles(role))).andExpect(status().isOk()); mvc.perform(post("/api/losing-returns").with(user(role).roles(role)).contentType(MediaType.APPLICATION_JSON).content("{\"customerId\":\"00000000-0000-0000-0000-000000000001\",\"customerSessionId\":\"00000000-0000-0000-0000-000000000002\",\"idempotencyKey\":\"key\"}")).andExpect(status().isOk()); }
+ @ParameterizedTest @ValueSource(strings={"RECEPTIONIST","PIT_SUPERVISOR","DEALER"}) void unrelatedRolesDenied(String role)throws Exception{ mvc.perform(get("/api/losing-returns/eligibility/customer/00000000-0000-0000-0000-000000000001").with(user(role).roles(role))).andExpect(status().isForbidden()); }
+ @org.junit.jupiter.api.Test void directorCanReadButCannotPost()throws Exception{ mvc.perform(get("/api/losing-returns/eligibility/customer/00000000-0000-0000-0000-000000000001").with(user("director").roles("DIRECTOR"))).andExpect(status().isOk()); mvc.perform(post("/api/losing-returns").with(user("director").roles("DIRECTOR")).contentType(MediaType.APPLICATION_JSON).content("{}")).andExpect(status().isForbidden()); }
+}

@@ -38,6 +38,12 @@ public class BusinessDateService {
     }
 
     public LocalDate getCurrentBusinessDate() {
+        List<BusinessDate> openDates = businessDateRepository.findByStatus("OPEN");
+
+        if (!openDates.isEmpty()) {
+            return openDates.get(0).getBusinessDate();
+        }
+
         LocalDateTime now = LocalDateTime.now();
 
         if (now.toLocalTime().isBefore(BUSINESS_DAY_START)) {

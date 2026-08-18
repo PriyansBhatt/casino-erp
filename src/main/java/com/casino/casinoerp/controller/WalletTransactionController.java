@@ -4,7 +4,6 @@ import com.casino.casinoerp.entity.WalletTransaction;
 import com.casino.casinoerp.service.WalletTransactionService;
 import org.springframework.web.bind.annotation.*;
 
-import jakarta.validation.Valid;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
@@ -71,8 +70,4 @@ public class WalletTransactionController {
         return response;
     }
 
-    @PostMapping
-    public WalletTransaction create(@Valid @RequestBody WalletTransaction transaction) {
-        return service.save(transaction);
-    }
 }

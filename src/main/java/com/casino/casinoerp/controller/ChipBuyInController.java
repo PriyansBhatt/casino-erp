@@ -1,7 +1,12 @@
 package com.casino.casinoerp.controller;
 
+import com.casino.casinoerp.dto.ApiResponse;
+import com.casino.casinoerp.dto.ChipBuyInResponse;
+import com.casino.casinoerp.dto.CreateChipBuyInRequest;
+import com.casino.casinoerp.dto.ChipBuyInHistoryResponse;
 import com.casino.casinoerp.entity.ChipBuyIn;
 import com.casino.casinoerp.service.ChipBuyInService;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import java.math.BigDecimal;
 import jakarta.validation.Valid;
@@ -25,12 +30,19 @@ public class ChipBuyInController {
     }
 
     @PostMapping
-    public ChipBuyIn createBuyIn(@Valid @RequestBody ChipBuyIn buyIn) {
-        return service.save(buyIn);
+    @ResponseStatus(HttpStatus.CREATED)
+    public ApiResponse<ChipBuyInResponse> createBuyIn(
+            @Valid @RequestBody CreateChipBuyInRequest request) {
+        return ApiResponse.success("Chip buy-in created successfully", service.create(request));
     }
 
     @GetMapping
     public List<ChipBuyIn> getAllBuyIns() {
         return service.getAllBuyIns();
+    }
+
+    @GetMapping("/current")
+    public ApiResponse<List<ChipBuyInHistoryResponse>> getCurrentBusinessDateHistory() {
+        return ApiResponse.success("Current Business Date Chip Buy-Ins loaded successfully", service.getCurrentBusinessDateHistory());
     }
 }

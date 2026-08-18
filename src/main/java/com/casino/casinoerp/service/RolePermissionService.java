@@ -30,6 +30,9 @@ public class RolePermissionService {
         return isSuperAdmin(role) || role == Role.CASHIER;
     }
 
+    public boolean canViewCashierTransactions(String roleName) { return withRole(roleName, this::canViewCashierTransactions); }
+    public boolean canViewCashierTransactions(Role role) { return isSuperAdmin(role) || role == Role.CASHIER || role == Role.DIRECTOR; }
+
     public boolean canCashOut(String roleName) {
         return withRole(roleName, this::canCashOut);
     }
@@ -37,6 +40,11 @@ public class RolePermissionService {
     public boolean canCashOut(Role role) {
         return isSuperAdmin(role) || role == Role.CASHIER;
     }
+
+    public boolean canLosingReturn(String roleName) { return withRole(roleName, this::canLosingReturn); }
+    public boolean canLosingReturn(Role role) { return isSuperAdmin(role) || role == Role.CASHIER; }
+    public boolean canViewLosingReturn(String roleName) { return withRole(roleName, this::canViewLosingReturn); }
+    public boolean canViewLosingReturn(Role role) { return canLosingReturn(role) || role == Role.DIRECTOR; }
 
     public boolean canPitTransaction(String roleName) {
         return withRole(roleName, this::canPitTransaction);
@@ -46,6 +54,37 @@ public class RolePermissionService {
         return isSuperAdmin(role)
                 || role == Role.PIT_SUPERVISOR
                 || role == Role.DEALER;
+    }
+
+    public boolean canRecordVerifiedGamingResult(Role role) {
+        return canPitTransaction(role);
+    }
+
+    public boolean canViewChipControl(Role role) {
+        return role == Role.CASHIER
+                || role == Role.PIT_SUPERVISOR
+                || role == Role.DIRECTOR
+                || role == Role.SUPER_ADMIN;
+    }
+
+    public boolean canViewCashierReconciliation(Role role) {
+        return role == Role.CASHIER || role == Role.DIRECTOR || role == Role.SUPER_ADMIN;
+    }
+
+    public boolean canSubmitCashierReconciliation(Role role) {
+        return role == Role.CASHIER || role == Role.SUPER_ADMIN;
+    }
+
+    public boolean canReopenCashierReconciliation(Role role) {
+        return role == Role.DIRECTOR || role == Role.SUPER_ADMIN;
+    }
+
+    public boolean canViewRunningFundsReport(Role role) {
+        return role == Role.DIRECTOR || role == Role.SUPER_ADMIN;
+    }
+
+    public boolean canManageCustomerBonus(Role role) {
+        return role == Role.DIRECTOR || role == Role.SUPER_ADMIN;
     }
 
     public boolean canManageBusinessDate(String roleName) {

@@ -2,7 +2,12 @@ package com.casino.casinoerp.service;
 
 import com.casino.casinoerp.entity.PitTable;
 import com.casino.casinoerp.repository.PitTableRepository;
+import com.casino.casinoerp.repository.PitTableCustomerAssignmentRepository;
+import com.casino.casinoerp.entity.PitTableCustomerAssignmentStatus;
+import com.casino.casinoerp.dto.CreatePitTableRequest;
+import com.casino.casinoerp.exception.ResourceConflictException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -18,36 +23,33 @@ public class PitTableService {
     private final SystemLockService systemLockService;
     private final AuditLogService auditLogService;
     private final CurrentUserRoleService currentUserRoleService;
+    private final RolePermissionService rolePermissionService;
+    private final PitTableCustomerAssignmentRepository assignmentRepository;
 
     public PitTableService(
             PitTableRepository repository,
             BusinessDateService businessDateService,
             SystemLockService systemLockService,
             AuditLogService auditLogService,
-            CurrentUserRoleService currentUserRoleService) {
+            CurrentUserRoleService currentUserRoleService,
+            RolePermissionService rolePermissionService,
+            PitTableCustomerAssignmentRepository assignmentRepository) {
 
         this.repository = repository;
         this.businessDateService = businessDateService;
         this.systemLockService = systemLockService;
         this.auditLogService = auditLogService;
         this.currentUserRoleService = currentUserRoleService;
+        this.rolePermissionService = rolePermissionService;
+        this.assignmentRepository = assignmentRepository;
     }
 
     private void validatePitRole() {
 
-        String role = currentUserRoleService.getCurrentUserRole();
-
-        if (!(role.equalsIgnoreCase("SUPER_ADMIN")
-                || role.equalsIgnoreCase("Super Admin")
-                || role.equalsIgnoreCase("MANAGER")
-                || role.equalsIgnoreCase("Manager")
-                || role.equalsIgnoreCase("PIT_SUPERVISOR")
-                || role.equalsIgnoreCase("Pit Supervisor")
-                || role.equalsIgnoreCase("DEALER")
-                || role.equalsIgnoreCase("Dealer"))) {
+        if (!rolePermissionService.canPitTransaction(currentUserRoleService.getCurrentUserRole())) {
 
             throw new RuntimeException(
-                    "Only Dealer, Pit Supervisor, Manager or Super Admin can manage Pit Tables."
+                    "Only Dealer, Pit Supervisor or Super Admin can manage Pit Tables."
             );
         }
     }
@@ -57,6 +59,7 @@ public class PitTableService {
                 .orElseThrow(() -> new RuntimeException("Pit table not found"));
     }
 
+    @Transactional
     public PitTable closeTable(UUID tableId, BigDecimal closingFloat) {
 
         businessDateService.validateBusinessDateIsOpen();
@@ -71,6 +74,21 @@ public class PitTableService {
 
         PitTable table = repository.findById(tableId)
                 .orElseThrow(() -> new RuntimeException("Pit table not found"));
+
+        if (!"OPEN".equalsIgnoreCase(table.getStatus())) {
+            throw new ResourceConflictException("Pit table is already closed.");
+        }
+        if (!businessDateService.getCurrentBusinessDate().equals(table.getBusinessDate())) {
+            throw new ResourceConflictException("Pit table does not belong to the current OPEN Business Date.");
+        }
+        if (closingFloat == null || closingFloat.compareTo(BigDecimal.ZERO) < 0) {
+            throw new IllegalArgumentException("Closing float must be zero or greater.");
+        }
+        if (!assignmentRepository.findByPitTableIdAndStatusOrderByJoinedAtAsc(
+                tableId, PitTableCustomerAssignmentStatus.ACTIVE).isEmpty()) {
+            throw new ResourceConflictException(
+                    "All active customer assignments must leave the Pit Table before it can be closed.");
+        }
 
         table.setStatus("CLOSED");
         table.setClosedAt(LocalDateTime.now());
@@ -117,6 +135,21 @@ public class PitTableService {
         );
 
         return saved;
+    }
+
+    public PitTable createAndOpen(CreatePitTableRequest request) {
+        String tableCode = request.tableCode().trim().toUpperCase();
+        repository.findByTableCodeIgnoreCase(tableCode).ifPresent(existing -> {
+            throw new ResourceConflictException("A Pit Table with this table code already exists.");
+        });
+
+        PitTable table = new PitTable();
+        table.setTableCode(tableCode);
+        table.setTableName(request.tableName().trim());
+        table.setGameType(request.gameType().trim());
+        table.setOpeningFloat(request.openingFloat() == null ? BigDecimal.ZERO : request.openingFloat());
+        table.setRemarks(request.remarks() == null ? null : request.remarks().trim());
+        return save(table);
     }
 
     public List<PitTable> getOpenTables() {

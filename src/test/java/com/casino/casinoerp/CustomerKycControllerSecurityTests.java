@@ -117,6 +117,24 @@ class CustomerKycControllerSecurityTests {
                 .andExpect(status().isForbidden());
     }
 
+    @Test
+    void cashierCannotUseBasicOrPrivilegedKycEndpoints() throws Exception {
+        mockMvc.perform(get("/api/customers/{customerId}/kyc", CUSTOMER_ID)
+                        .with(user("cashier").roles("CASHIER")))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/customers/{customerId}/kyc/privileged", CUSTOMER_ID)
+                        .with(user("cashier").roles("CASHIER")))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/customers/{customerId}/identity-documents", CUSTOMER_ID)
+                        .with(user("cashier").roles("CASHIER")))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(patch("/api/customers/{customerId}/classification", CUSTOMER_ID)
+                        .with(user("cashier").roles("CASHIER"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(classificationJson()))
+                .andExpect(status().isForbidden());
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"DIRECTOR", "SUPER_ADMIN"})
     void privilegedRolesCanUsePrivilegedEndpoints(String role) throws Exception {

@@ -11,6 +11,8 @@ import com.casino.casinoerp.exception.ResourceNotFoundException;
 import com.casino.casinoerp.service.CustomerService;
 import com.casino.casinoerp.service.JwtService;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -145,9 +147,48 @@ class ReceptionCustomerSecurityTests {
     }
 
     @Test
-    void unrelatedAuthenticatedRoleCannotListCustomers() throws Exception {
+    void cashierCanListReceptionSafeCustomers() throws Exception {
+        when(customerService.getAllCustomers()).thenReturn(List.of(new ReceptionCustomerResponse(
+                CUSTOMER_ID,
+                "CUS-1001",
+                "Rina Rai",
+                "+9779800000000",
+                "Nepali",
+                "ACTIVE",
+                3,
+                java.time.LocalDate.of(2026, 8, 8),
+                java.time.LocalDateTime.of(2026, 8, 8, 22, 30),
+                true,
+                UUID.fromString("00000000-0000-0000-0000-000000000002")
+        )));
+
         mockMvc.perform(get("/api/customers").with(user("cashier").roles("CASHIER")))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(CUSTOMER_ID.toString()))
+                .andExpect(jsonPath("$[0].customerCode").value("CUS-1001"))
+                .andExpect(jsonPath("$[0].riskLevel").doesNotExist())
+                .andExpect(jsonPath("$[0].internalNotes").doesNotExist())
+                .andExpect(jsonPath("$[0].identityDocuments").doesNotExist())
+                .andExpect(jsonPath("$[0].totalBuyIn").doesNotExist())
+                .andExpect(jsonPath("$[0].totalCashOut").doesNotExist());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"PIT_SUPERVISOR", "DEALER"})
+    void pitRolesCanListOnlyReceptionSafeCustomers(String role) throws Exception {
+        when(customerService.getAllCustomers()).thenReturn(List.of(new ReceptionCustomerResponse(
+                CUSTOMER_ID, "CUS-1001", "Rina Rai", "+9779800000000", "Nepali", "ACTIVE",
+                3, java.time.LocalDate.of(2026, 8, 8),
+                java.time.LocalDateTime.of(2026, 8, 8, 22, 30), true,
+                UUID.fromString("00000000-0000-0000-0000-000000000002")
+        )));
+
+        mockMvc.perform(get("/api/customers").with(user(role.toLowerCase()).roles(role)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].customerCode").value("CUS-1001"))
+                .andExpect(jsonPath("$[0].riskLevel").doesNotExist())
+                .andExpect(jsonPath("$[0].internalNotes").doesNotExist())
+                .andExpect(jsonPath("$[0].identityDocuments").doesNotExist());
     }
 
     @Test

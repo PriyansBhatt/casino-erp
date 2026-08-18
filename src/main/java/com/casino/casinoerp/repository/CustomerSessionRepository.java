@@ -15,6 +15,9 @@ public interface CustomerSessionRepository extends JpaRepository<CustomerSession
 
     Optional<CustomerSession> findFirstByCustomerIdAndStatusIgnoreCase(UUID customerId, String status);
 
+    List<CustomerSession> findByStatusIgnoreCaseAndBusinessDateOrderByEntryTimeAsc(
+            String status, java.time.LocalDate businessDate);
+
     @Query(value = """
             select
                 cs.customer_id as "customerId",

@@ -1,5 +1,6 @@
 package com.casino.casinoerp.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.Data;
 
@@ -43,6 +44,12 @@ public class ChipCashOut {
     @Column(name = "cash_paid")
     private BigDecimal cashPaid;
 
+    @Column(name = "payment_mode")
+    private String paymentMode;
+
+    @Column(name = "payment_reference")
+    private String paymentReference;
+
     @NotNull(message = "Same customer verification is required")
     @Column(name = "same_customer_verified")
     private Boolean sameCustomerVerified;
@@ -68,6 +75,10 @@ public class ChipCashOut {
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;
+
+    @Column(name = "idempotency_key")
+    @JsonIgnore
+    private String idempotencyKey;
 
     private String remarks;
 }
