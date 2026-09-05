@@ -207,6 +207,12 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/cashier-reconciliation/current")
                         .hasAnyRole(Role.CASHIER.name(), Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())
 
+                        .requestMatchers(HttpMethod.GET, "/api/cashier-opening-balances/current")
+                        .hasAnyRole(Role.CASHIER.name(), Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())
+
+                        .requestMatchers(HttpMethod.POST, "/api/cashier-opening-balances/current")
+                        .hasAnyRole(Role.CASHIER.name(), Role.SUPER_ADMIN.name())
+
                         .requestMatchers(HttpMethod.GET, "/api/cashier-reconciliation/current/submitted")
                         .hasAnyRole(Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())
 

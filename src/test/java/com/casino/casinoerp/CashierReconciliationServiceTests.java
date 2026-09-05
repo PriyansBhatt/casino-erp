@@ -27,9 +27,10 @@ class CashierReconciliationServiceTests {
     private final AuditLogService audit = mock(AuditLogService.class);
     private final UserRepository users = mock(UserRepository.class);
     private final LosingReturnRepository losingReturns = mock(LosingReturnRepository.class);
+    private final CashierOpeningBalanceRepository openingBalances = mock(CashierOpeningBalanceRepository.class);
     private final CashierReconciliationService service = new CashierReconciliationService(
             repository, buyIns, cashOuts, businessDates, authenticatedUsers, roles,
-            new RolePermissionService(), systemLock, audit, users, losingReturns);
+            new RolePermissionService(), systemLock, audit, users, losingReturns, openingBalances);
     private final UUID actorId = UUID.randomUUID();
     private final LocalDate date = LocalDate.of(2026, 8, 8);
 
@@ -122,7 +123,54 @@ class CashierReconciliationServiceTests {
         CashierReconciliation prior = new CashierReconciliation(); prior.setCashierUserId(actorId); prior.setBusinessDate(date);
         prior.setOpeningCash(BigDecimal.ZERO); prior.setActualClosingCash(BigDecimal.ZERO); prior.setDenominations(Map.of());
         when(repository.findByIdempotencyKey("used")).thenReturn(Optional.of(prior));
-        assertThatThrownBy(() -> service.submit(request("10", Map.of(), "used"))).hasMessageContaining("different reconciliation");
+        assertThatThrownBy(() -> service.submit(request("10", Map.of(5, 1), "used"))).hasMessageContaining("different reconciliation");
+    }
+
+    @Test void historicalIdempotentReplayDoesNotRequireNewOpeningBalanceRecord() {
+        CashierReconciliation prior = persisted("SUBMITTED");
+        prior.setIdempotencyKey("historical-key");
+        when(repository.findByIdempotencyKey("historical-key")).thenReturn(Optional.of(prior));
+        when(openingBalances.findByCashierUserIdAndBusinessDate(actorId, date)).thenReturn(Optional.empty());
+
+        var result = service.submit(new CashierReconciliationRequest(
+                new BigDecimal("999"), Map.of(100, 1), null, "historical-key"));
+
+        assertThat(result.id()).isEqualTo(prior.getId());
+        assertThat(result.openingCash()).isEqualByComparingTo("100");
+        verify(repository, never()).save(any());
+    }
+
+    @Test void clientOpeningCashCannotOverrideAuthoritativeBalance() {
+        CashierOpeningBalance balance = new CashierOpeningBalance();
+        balance.setOpeningCashAmount(new BigDecimal("250"));
+        when(openingBalances.findByCashierUserIdAndBusinessDate(actorId, date)).thenReturn(Optional.of(balance));
+
+        var result = service.preview(new CashierReconciliationRequest(
+                new BigDecimal("999999"), Map.of(500, 1), null, "ignored-client-opening"));
+
+        assertThat(result.openingCash()).isEqualByComparingTo("250");
+        assertThat(result.expectedClosingCash()).isEqualByComparingTo("250");
+    }
+
+    @Test void missingOpeningBalancePreventsPreviewAndSubmit() {
+        when(openingBalances.findByCashierUserIdAndBusinessDate(actorId, date)).thenReturn(Optional.empty());
+        CashierReconciliationRequest value = new CashierReconciliationRequest(
+                new BigDecimal("100"), Map.of(), null, "missing-opening");
+        assertThatThrownBy(() -> service.preview(value)).hasMessageContaining("Opening Cash must be established");
+        assertThatThrownBy(() -> service.submit(value)).hasMessageContaining("Opening Cash must be established");
+    }
+
+    @Test void currentViewLoadsAuthoritativeOpeningCashBeforeSubmission() {
+        CashierOpeningBalance balance = new CashierOpeningBalance();
+        balance.setOpeningCashAmount(new BigDecimal("400"));
+        when(openingBalances.findByCashierUserIdAndBusinessDate(actorId, date)).thenReturn(Optional.of(balance));
+
+        var result = service.getCurrent();
+
+        assertThat(result.openingCash()).isEqualByComparingTo("400");
+        assertThat(result.expectedClosingCash()).isEqualByComparingTo("400");
+        assertThat(result.actualClosingCash()).isNull();
+        assertThat(result.variance()).isNull();
     }
 
     @Test void unauthorizedRoleCannotViewOrSubmit() {
@@ -166,14 +214,31 @@ class CashierReconciliationServiceTests {
 
     @Test void reopenedRecordCanBeResubmittedAndFinalizedAgain() {
         CashierReconciliation reopened = persisted("REOPENED");
+        UUID existingId = reopened.getId();
+        reopened.getDenominations().clear();
+        reopened.getDenominations().putAll(Map.of(100, 1));
         reopened.setIdempotencyKey("old-key");
         when(repository.findByCashierUserIdAndBusinessDate(actorId, date)).thenReturn(Optional.of(reopened));
-        var result = service.submit(request("100", Map.of(100, 1), "new-key"));
+        doReturn(reopened).when(repository).save(same(reopened));
+        var result = service.submit(request("100", Map.of(50, 2), "new-key"));
+
+        assertThat(result.id()).isEqualTo(existingId);
         assertThat(result.lifecycleStatus()).isEqualTo("SUBMITTED");
+        assertThat(result.actualClosingCash()).isEqualByComparingTo("100");
+        assertThat(result.expectedClosingCash()).isEqualByComparingTo("100");
+        assertThat(result.variance()).isZero();
+        assertThat(reopened.getDenominations()).containsExactlyEntriesOf(Map.of(50, 2));
+        assertThat(reopened.getDenominations()).isInstanceOf(LinkedHashMap.class);
         assertThat(reopened.getIdempotencyKey()).isEqualTo("new-key");
+        verify(repository).save(same(reopened));
+        verify(audit).log(eq("RECONCILIATION_SUBMITTED"), eq("CASHIER_RECONCILIATION"),
+                eq(existingId), eq(actorId), contains("result=BALANCED"));
     }
 
     private CashierReconciliationRequest request(String opening, Map<Integer, Integer> denominations, String key) {
+        CashierOpeningBalance balance = new CashierOpeningBalance();
+        balance.setOpeningCashAmount(new BigDecimal(opening));
+        when(openingBalances.findByCashierUserIdAndBusinessDate(actorId, date)).thenReturn(Optional.of(balance));
         return new CashierReconciliationRequest(new BigDecimal(opening), denominations, null, key);
     }
     private ChipBuyIn buyIn(String mode, String amount) { ChipBuyIn value = new ChipBuyIn(); value.setPaymentMode(mode); value.setAmountReceived(new BigDecimal(amount)); return value; }
@@ -182,7 +247,7 @@ class CashierReconciliationServiceTests {
         CashierReconciliation value = new CashierReconciliation(); value.setId(UUID.randomUUID()); value.setCashierUserId(actorId);
         value.setBusinessDate(date); value.setOpeningCash(new BigDecimal("100")); value.setExpectedClosingCash(new BigDecimal("100"));
         value.setActualClosingCash(new BigDecimal("100")); value.setVariance(BigDecimal.ZERO); value.setStatus("BALANCED");
-        value.setLifecycleStatus(lifecycle); value.setDenominations(Map.of(100, 1)); value.setIdempotencyKey("key");
+        value.setLifecycleStatus(lifecycle); value.setDenominations(new LinkedHashMap<>(Map.of(100, 1))); value.setIdempotencyKey("key");
         return value;
     }
 }
