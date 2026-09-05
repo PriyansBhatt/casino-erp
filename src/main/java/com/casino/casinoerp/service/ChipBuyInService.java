@@ -40,6 +40,7 @@ public class ChipBuyInService {
     private final AuthenticatedUserService authenticatedUserService;
     private final UserRepository userRepository;
     private final CashierReconciliationService cashierReconciliationService;
+    private final ChipCustodyService chipCustodyService;
 
     public ChipBuyInService(
             ChipBuyInRepository repository,
@@ -53,7 +54,8 @@ public class ChipBuyInService {
             CurrentUserRoleService currentUserRoleService,
             AuthenticatedUserService authenticatedUserService,
             UserRepository userRepository,
-            CashierReconciliationService cashierReconciliationService) {
+            CashierReconciliationService cashierReconciliationService,
+            ChipCustodyService chipCustodyService) {
 
         this.repository = repository;
         this.customerRepository = customerRepository;
@@ -67,6 +69,7 @@ public class ChipBuyInService {
         this.authenticatedUserService = authenticatedUserService;
         this.userRepository = userRepository;
         this.cashierReconciliationService = cashierReconciliationService;
+        this.chipCustodyService = chipCustodyService;
     }
 
     @Transactional
@@ -108,6 +111,11 @@ public class ChipBuyInService {
 
         CustomerSession session = customerSessionRepository.findById(request.customerSessionId())
                 .orElseThrow(() -> new ResourceNotFoundException("Customer session not found."));
+        existing = repository.findByIdempotencyKey(idempotencyKey).orElse(null);
+        if (existing != null) {
+            validateIdempotentReplay(existing, request);
+            return toResponse(existing);
+        }
         if (!"OPEN".equalsIgnoreCase(session.getStatus())) {
             throw new IllegalArgumentException("Customer session must be OPEN.");
         }
@@ -139,6 +147,10 @@ public class ChipBuyInService {
         buyIn.setCreatedBy(actor.getId());
         buyIn.setRemarks(normalizeOptional(request.remarks()));
         buyIn.setIdempotencyKey(idempotencyKey);
+
+        var custodyMovement = chipCustodyService.recordBuyIn(buyInId, session.getId(), businessDate,
+                request.denominations(), request.totalChipValueIssued(), actor.getId());
+        buyIn.setDenominations(new java.util.LinkedHashMap<>(custodyMovement.getDenominations()));
 
         WalletTransaction tx = new WalletTransaction();
 
@@ -187,12 +199,22 @@ public class ChipBuyInService {
                 || !request.customerSessionId().equals(existing.getCustomerSessionId())
                 || request.amountReceived().compareTo(existing.getAmountReceived()) != 0
                 || request.totalChipValueIssued().compareTo(existing.getTotalChipValueIssued()) != 0
+                || !normalizeDenominations(request.denominations()).equals(existing.getDenominations())
                 || !request.paymentMode().name().equals(existing.getPaymentMode())
                 || !java.util.Objects.equals(
                         normalizeOptional(request.paymentReference()), existing.getPaymentReference())) {
             throw new ResourceConflictException(
                     "Idempotency key has already been used for a different buy-in request.");
         }
+    }
+
+    private java.util.Map<Integer, Long> normalizeDenominations(java.util.Map<Integer, Long> values) {
+        if (values == null) return java.util.Map.of();
+        java.util.Map<Integer, Long> normalized = new java.util.LinkedHashMap<>();
+        values.forEach((denomination, quantity) -> {
+            if (quantity != null && quantity > 0) normalized.put(denomination, quantity);
+        });
+        return normalized;
     }
 
     private String normalizeOptional(String value) {
@@ -218,6 +240,7 @@ public class ChipBuyInService {
                 buyIn.getAmountReceived(),
                 buyIn.getPaymentMode(),
                 buyIn.getTotalChipValueIssued(),
+                java.util.Map.copyOf(buyIn.getDenominations()),
                 buyIn.getPaymentReference(),
                 buyIn.getBusinessDate(),
                 buyIn.getCreatedAt(),

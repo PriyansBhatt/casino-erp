@@ -29,6 +29,9 @@ class PitTablePlayerSecurityTests {
             {"customerId":"00000000-0000-0000-0000-000000000001",
              "customerSessionId":"00000000-0000-0000-0000-000000000002"}
             """;
+    private static final String LEAVE_REQUEST = """
+            {"denominations":{},"idempotencyKey":"leave-settlement-key"}
+            """;
 
     @Autowired MockMvc mockMvc;
     @MockitoBean PitTableCustomerAssignmentService service;
@@ -44,8 +47,15 @@ class PitTablePlayerSecurityTests {
                         .contentType("application/json").content(REQUEST))
                 .andExpect(status().isCreated());
         mockMvc.perform(post("/api/pit/tables/{tableId}/players/{assignmentId}/leave", TABLE_ID, ASSIGNMENT_ID)
-                        .with(actor))
+                        .with(actor).contentType("application/json").content(LEAVE_REQUEST))
                 .andExpect(status().isOk());
+    }
+
+    @org.junit.jupiter.api.Test
+    void leaveCannotBypassExplicitCustodySettlementRequest() throws Exception {
+        mockMvc.perform(post("/api/pit/tables/{tableId}/players/{assignmentId}/leave", TABLE_ID, ASSIGNMENT_ID)
+                        .with(user("pit").roles("PIT_SUPERVISOR")))
+                .andExpect(status().isBadRequest());
     }
 
     @ParameterizedTest

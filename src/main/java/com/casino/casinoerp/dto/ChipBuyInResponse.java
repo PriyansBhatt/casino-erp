@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
+import java.util.Map;
 
 public record ChipBuyInResponse(
         UUID id,
@@ -13,6 +14,7 @@ public record ChipBuyInResponse(
         BigDecimal amountReceived,
         String paymentMode,
         BigDecimal totalChipValueIssued,
+        Map<Integer, Long> denominations,
         String paymentReference,
         LocalDate businessDate,
         LocalDateTime createdAt,

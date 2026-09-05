@@ -24,4 +24,7 @@ public class PitTableCustomerAssignment {
     @Column(name = "joined_by", nullable = false) private UUID joinedBy;
     @Column(name = "left_at") private LocalDateTime leftAt;
     @Column(name = "left_by") private UUID leftBy;
+    @Column(name = "custody_settled_at") private LocalDateTime custodySettledAt;
+    @Column(name = "custody_settlement_key", length = 100, unique = true)
+    private String custodySettlementKey;
 }

@@ -67,6 +67,23 @@ public class RolePermissionService {
                 || role == Role.SUPER_ADMIN;
     }
 
+    public boolean canViewChipCustody(Role role) {
+        return role == Role.CASHIER || role == Role.PIT_SUPERVISOR
+                || role == Role.DEALER || role == Role.DIRECTOR || role == Role.SUPER_ADMIN;
+    }
+
+    public boolean canViewChipCustodyHistory(Role role) {
+        return role == Role.DIRECTOR || role == Role.SUPER_ADMIN;
+    }
+
+    public boolean canManageTableChipCustody(Role role) {
+        return role == Role.PIT_SUPERVISOR || role == Role.SUPER_ADMIN;
+    }
+
+    public boolean canInitializeChipCustody(Role role) {
+        return role == Role.SUPER_ADMIN;
+    }
+
     public boolean canViewCashierReconciliation(Role role) {
         return role == Role.CASHIER || role == Role.DIRECTOR || role == Role.SUPER_ADMIN;
     }

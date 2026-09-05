@@ -36,6 +36,7 @@ class ChipCashOutSecurityTests {
               "customerSessionId":"00000000-0000-0000-0000-000000000002",
               "cashPaid":1000,
               "totalChipValueReturned":1000,
+              "denominations":{"1000":1},
               "paymentMode":"CASH",
               "idempotencyKey":"cashout-test-key"
             }
@@ -84,7 +85,7 @@ class ChipCashOutSecurityTests {
         return new ChipCashOutResponse(UUID.randomUUID(), "CO-20260808-test",
                 UUID.fromString("00000000-0000-0000-0000-000000000001"),
                 UUID.fromString("00000000-0000-0000-0000-000000000002"),
-                new BigDecimal("1000"), new BigDecimal("1000"), "CASH", null,
+                new BigDecimal("1000"), new BigDecimal("1000"), java.util.Map.of(1000, 1L), "CASH", null,
                 LocalDate.of(2026, 8, 8), LocalDateTime.now(), null, null);
     }
 }

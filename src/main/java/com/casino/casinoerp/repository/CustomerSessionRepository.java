@@ -3,7 +3,11 @@ package com.casino.casinoerp.repository;
 import com.casino.casinoerp.entity.CustomerSession;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.QueryHints;
 import org.springframework.data.repository.query.Param;
+import jakarta.persistence.LockModeType;
+import jakarta.persistence.QueryHint;
 
 import java.util.Collection;
 import java.util.List;
@@ -11,6 +15,11 @@ import java.util.UUID;
 import java.util.Optional;
 
 public interface CustomerSessionRepository extends JpaRepository<CustomerSession, UUID> {
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "5000"))
+    @Query("select session from CustomerSession session where session.id = :sessionId")
+    Optional<CustomerSession> findByIdForUpdate(@Param("sessionId") UUID sessionId);
+
     boolean existsByCustomerIdAndStatusIgnoreCase(UUID customerId, String status);
 
     Optional<CustomerSession> findFirstByCustomerIdAndStatusIgnoreCase(UUID customerId, String status);

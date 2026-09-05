@@ -35,7 +35,9 @@ public class PitTablePlayerController {
 
     @PostMapping("/{assignmentId}/leave")
     public ApiResponse<PitTablePlayerResponse> leave(
-            @PathVariable UUID tableId, @PathVariable UUID assignmentId) {
-        return ApiResponse.success("Customer left Pit Table successfully", service.leave(tableId, assignmentId));
+            @PathVariable UUID tableId, @PathVariable UUID assignmentId,
+            @Valid @RequestBody LeavePitTableCustomerRequest request) {
+        return ApiResponse.success("Customer left Pit Table successfully",
+                service.leave(tableId, assignmentId, request));
     }
 }

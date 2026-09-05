@@ -8,6 +8,7 @@ import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
 import java.util.UUID;
+import java.util.Map;
 
 public record CreateChipCashOutRequest(
         @NotNull(message = "Customer ID is required") UUID customerId,
@@ -18,6 +19,7 @@ public record CreateChipCashOutRequest(
         @NotNull(message = "Total chip value returned is required")
         @DecimalMin(value = "0.01", message = "Total chip value returned must be greater than 0")
         BigDecimal totalChipValueReturned,
+        @NotNull(message = "Chip denominations are required") Map<Integer, Long> denominations,
         @NotNull(message = "Payment mode is required") PaymentMode paymentMode,
         @Size(max = 150, message = "Payment reference must not exceed 150 characters")
         String paymentReference,

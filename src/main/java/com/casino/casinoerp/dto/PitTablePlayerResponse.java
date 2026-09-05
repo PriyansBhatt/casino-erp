@@ -3,6 +3,7 @@ package com.casino.casinoerp.dto;
 import com.casino.casinoerp.entity.PitTableCustomerAssignmentStatus;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.math.BigDecimal;
 import java.util.UUID;
 
 public record PitTablePlayerResponse(
@@ -17,5 +18,6 @@ public record PitTablePlayerResponse(
         LocalDate businessDate,
         LocalDateTime joinedAt,
         PitTableCustomerAssignmentStatus status,
-        LocalDateTime leftAt
+        LocalDateTime leftAt,
+        BigDecimal calculatedChipPosition
 ) {}

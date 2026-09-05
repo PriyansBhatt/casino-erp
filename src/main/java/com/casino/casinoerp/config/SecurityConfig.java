@@ -184,6 +184,26 @@ public class SecurityConfig {
                                 Role.SUPER_ADMIN.name()
                         )
 
+                        .requestMatchers(HttpMethod.POST, "/api/chip-custody/cage/opening")
+                        .hasRole(Role.SUPER_ADMIN.name())
+
+                        .requestMatchers(HttpMethod.POST, "/api/chip-custody/tables/*/float-issue",
+                                "/api/chip-custody/tables/*/float-return")
+                        .hasAnyRole(Role.PIT_SUPERVISOR.name(), Role.SUPER_ADMIN.name())
+
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/chip-custody/tables/*/customer-sessions/*/issue",
+                                "/api/chip-custody/tables/*/customer-sessions/*/return")
+                        .hasAnyRole(Role.DEALER.name(), Role.PIT_SUPERVISOR.name(), Role.SUPER_ADMIN.name())
+
+                        .requestMatchers(HttpMethod.GET, "/api/chip-custody/movements/current")
+                        .hasAnyRole(Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())
+
+                        .requestMatchers(HttpMethod.GET, "/api/chip-custody/cage",
+                                "/api/chip-custody/customer-sessions/*", "/api/chip-custody/tables/*")
+                        .hasAnyRole(Role.CASHIER.name(), Role.PIT_SUPERVISOR.name(), Role.DEALER.name(),
+                                Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())
+
                         .requestMatchers(HttpMethod.GET, "/api/cashier-reconciliation/current")
                         .hasAnyRole(Role.CASHIER.name(), Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())
 

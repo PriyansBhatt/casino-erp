@@ -25,6 +25,7 @@ public class PitTableService {
     private final CurrentUserRoleService currentUserRoleService;
     private final RolePermissionService rolePermissionService;
     private final PitTableCustomerAssignmentRepository assignmentRepository;
+    private final ChipCustodyService chipCustodyService;
 
     public PitTableService(
             PitTableRepository repository,
@@ -33,7 +34,8 @@ public class PitTableService {
             AuditLogService auditLogService,
             CurrentUserRoleService currentUserRoleService,
             RolePermissionService rolePermissionService,
-            PitTableCustomerAssignmentRepository assignmentRepository) {
+            PitTableCustomerAssignmentRepository assignmentRepository,
+            ChipCustodyService chipCustodyService) {
 
         this.repository = repository;
         this.businessDateService = businessDateService;
@@ -42,6 +44,7 @@ public class PitTableService {
         this.currentUserRoleService = currentUserRoleService;
         this.rolePermissionService = rolePermissionService;
         this.assignmentRepository = assignmentRepository;
+        this.chipCustodyService = chipCustodyService;
     }
 
     private void validatePitRole() {
@@ -72,7 +75,7 @@ public class PitTableService {
 
         validatePitRole();
 
-        PitTable table = repository.findById(tableId)
+        PitTable table = repository.findByIdForUpdate(tableId)
                 .orElseThrow(() -> new RuntimeException("Pit table not found"));
 
         if (!"OPEN".equalsIgnoreCase(table.getStatus())) {
@@ -89,6 +92,7 @@ public class PitTableService {
             throw new ResourceConflictException(
                     "All active customer assignments must leave the Pit Table before it can be closed.");
         }
+        chipCustodyService.validateTableCustodySettled(tableId);
 
         table.setStatus("CLOSED");
         table.setClosedAt(LocalDateTime.now());

@@ -15,6 +15,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -35,11 +36,12 @@ class ChipBuyInServiceTests {
     private final AuthenticatedUserService authenticatedUserService = mock(AuthenticatedUserService.class);
     private final UserRepository userRepository = mock(UserRepository.class);
     private final CashierReconciliationService reconciliationService = mock(CashierReconciliationService.class);
+    private final ChipCustodyService chipCustodyService = mock(ChipCustodyService.class);
     private final ChipBuyInService service = new ChipBuyInService(
             buyInRepository, customerRepository, sessionRepository, systemLockService,
             walletTransactionService, businessDateService, auditLogService,
             new RolePermissionService(), currentUserRoleService, authenticatedUserService,
-            userRepository, reconciliationService);
+            userRepository, reconciliationService, chipCustodyService);
 
     private final UUID customerId = UUID.randomUUID();
     private final UUID sessionId = UUID.randomUUID();
@@ -54,6 +56,8 @@ class ChipBuyInServiceTests {
         when(businessDateService.getCurrentBusinessDate()).thenReturn(businessDate);
         when(authenticatedUserService.getRequiredUser()).thenReturn(actor());
         when(walletTransactionService.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(chipCustodyService.recordBuyIn(any(), any(), any(), anyMap(), any(), any()))
+                .thenAnswer(invocation -> custodyMovement(invocation.getArgument(3)));
         when(buyInRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
     }
 
@@ -162,7 +166,8 @@ class ChipBuyInServiceTests {
 
     @Test void unequalAmountsAreRejected() {
         CreateChipBuyInRequest request = new CreateChipBuyInRequest(customerId, sessionId,
-                new BigDecimal("10000"), PaymentMode.CASH, new BigDecimal("9000"), null, null, "idem-1");
+                new BigDecimal("10000"), PaymentMode.CASH, new BigDecimal("9000"),
+                Map.of(1000, 9L), null, null, "idem-1");
         assertThatThrownBy(() -> service.create(request))
                 .hasMessage("Amount received must equal total chip value issued.");
     }
@@ -177,6 +182,19 @@ class ChipBuyInServiceTests {
         assertThatThrownBy(() -> service.create(request(PaymentMode.CASH, null))).hasMessage("wallet failed");
         verify(buyInRepository, never()).save(any());
         verify(auditLogService, never()).log(any(), any(), any(), any(), any());
+    }
+
+    @Test void insufficientPhysicalInventoryPreventsAllFinancialWrites() {
+        doThrow(new ResourceConflictException("Insufficient physical chips for denomination NPR 1000."))
+                .when(chipCustodyService).recordBuyIn(any(), eq(sessionId), eq(businessDate),
+                        anyMap(), any(), eq(actorId));
+
+        assertThatThrownBy(() -> service.create(request(PaymentMode.CASH, null)))
+                .isInstanceOf(ResourceConflictException.class).hasMessageContaining("Insufficient physical chips");
+
+        verify(walletTransactionService, never()).save(any());
+        verify(buyInRepository, never()).save(any());
+        verify(auditLogService, never()).log(eq("CREATE_BUY_IN"), any(), any(), any(), any());
     }
 
     @Test void buyInPersistenceFailureDoesNotWriteAudit() {
@@ -225,7 +243,7 @@ class ChipBuyInServiceTests {
 
     private CreateChipBuyInRequest request(PaymentMode mode, String reference) {
         return new CreateChipBuyInRequest(customerId, sessionId, new BigDecimal("10000"), mode,
-                new BigDecimal("10000"), reference, "Test", "idem-1");
+                new BigDecimal("10000"), Map.of(1000, 10L), reference, "Test", "idem-1");
     }
 
     private Customer customer(CustomerStatus status) {
@@ -246,6 +264,13 @@ class ChipBuyInServiceTests {
         buyIn.setCustomerId(customerId); buyIn.setCustomerSessionId(sessionId);
         buyIn.setAmountReceived(new BigDecimal("10000")); buyIn.setTotalChipValueIssued(new BigDecimal("10000"));
         buyIn.setPaymentMode("CASH"); buyIn.setBusinessDate(businessDate); buyIn.setCreatedBy(actorId);
+        buyIn.setDenominations(Map.of(1000, 10L));
         return buyIn;
+    }
+
+    private ChipCustodyMovement custodyMovement(Map<Integer, Long> denominations) {
+        ChipCustodyMovement movement = new ChipCustodyMovement();
+        movement.setDenominations(new java.util.LinkedHashMap<>(denominations));
+        return movement;
     }
 }

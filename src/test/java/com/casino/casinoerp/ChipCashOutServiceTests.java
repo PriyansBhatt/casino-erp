@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Optional;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -33,10 +34,11 @@ class ChipCashOutServiceTests {
     private final AuthenticatedUserService userService = mock(AuthenticatedUserService.class);
     private final UserRepository userRepository = mock(UserRepository.class);
     private final CashierReconciliationService reconciliationService = mock(CashierReconciliationService.class);
+    private final ChipCustodyService custodyService = mock(ChipCustodyService.class);
     private final ChipCashOutService service = new ChipCashOutService(
             repository, customerRepository, sessionRepository, lockService, businessDateService,
             positionService, walletService, auditService, new RolePermissionService(), roleService,
-            userService, userRepository, reconciliationService);
+            userService, userRepository, reconciliationService, custodyService);
 
     private final UUID customerId = UUID.randomUUID();
     private final UUID sessionId = UUID.randomUUID();
@@ -54,6 +56,8 @@ class ChipCashOutServiceTests {
             ChipCashOut value = invocation.getArgument(0); value.setId(UUID.randomUUID()); return value;
         });
         when(walletService.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        when(custodyService.recordCashOut(any(), any(), any(), anyMap(), any(), any()))
+                .thenAnswer(invocation -> custodyMovement(invocation.getArgument(3)));
     }
 
     @Test void exactMaximumCreatesServerOwnedCashOutWalletAndAudit() {
@@ -96,6 +100,32 @@ class ChipCashOutServiceTests {
         when(positionService.getPosition(sessionId)).thenReturn(position("0"));
         assertThatThrownBy(() -> service.create(request("1", "1", PaymentMode.CASH, null, "key-4")))
                 .hasMessage("Cash-Out exceeds the authoritative session chip position.");
+    }
+
+    @Test void secondAttemptSeesPositionAfterFirstCashOutAndIsRejected() {
+        when(positionService.getPosition(sessionId)).thenReturn(position("1000"), position("0"));
+
+        assertThat(service.create(request("1000", "1000", PaymentMode.CASH, null, "first")).id()).isNotNull();
+        assertThatThrownBy(() -> service.create(request("1", "1", PaymentMode.CASH, null, "second")))
+                .hasMessage("Cash-Out exceeds the authoritative session chip position.");
+
+        verify(sessionRepository, times(2)).findById(sessionId);
+        verify(repository, times(1)).save(any());
+        verify(walletService, times(1)).save(any());
+    }
+
+    @Test void idempotencyCreatedWhileWaitingForLockReturnsOriginalWithoutWrites() {
+        ChipCashOut existing = existing();
+        when(repository.findByIdempotencyKey("concurrent-key"))
+                .thenReturn(Optional.empty(), Optional.of(existing));
+        when(userRepository.findById(actorId)).thenReturn(Optional.of(actor()));
+
+        assertThat(service.create(request("100", "100", PaymentMode.CASH, null, "concurrent-key")).id())
+                .isEqualTo(existing.getId());
+
+        verify(sessionRepository).findById(sessionId);
+        verify(repository, never()).save(any());
+        verify(walletService, never()).save(any());
     }
 
     @Test void nonPositiveAndUnequalAmountsAreRejected() {
@@ -192,7 +222,7 @@ class ChipCashOutServiceTests {
 
     private CreateChipCashOutRequest request(String cash, String chips, PaymentMode mode, String reference, String key) {
         return new CreateChipCashOutRequest(customerId, sessionId, new BigDecimal(cash),
-                new BigDecimal(chips), mode, reference, "Test", key);
+                new BigDecimal(chips), Map.of(500, 1L), mode, reference, "Test", key);
     }
     private SessionFinancialPositionResponse position(String calculated) {
         return new SessionFinancialPositionResponse(customerId, sessionId, businessDate,
@@ -213,6 +243,12 @@ class ChipCashOutServiceTests {
         ChipCashOut value = new ChipCashOut(); value.setId(UUID.randomUUID()); value.setCashOutCode("CO-existing");
         value.setCustomerId(customerId); value.setCustomerSessionId(sessionId); value.setCashPaid(new BigDecimal("100"));
         value.setTotalChipValueReturned(new BigDecimal("100")); value.setPaymentMode("CASH");
+        value.setDenominations(Map.of(500, 1L));
         value.setBusinessDate(businessDate); value.setCreatedBy(actorId); return value;
+    }
+    private ChipCustodyMovement custodyMovement(Map<Integer, Long> denominations) {
+        ChipCustodyMovement movement = new ChipCustodyMovement();
+        movement.setDenominations(new java.util.LinkedHashMap<>(denominations));
+        return movement;
     }
 }

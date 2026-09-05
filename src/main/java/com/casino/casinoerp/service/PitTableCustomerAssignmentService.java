@@ -1,6 +1,7 @@
 package com.casino.casinoerp.service;
 
 import com.casino.casinoerp.dto.AssignPitTableCustomerRequest;
+import com.casino.casinoerp.dto.LeavePitTableCustomerRequest;
 import com.casino.casinoerp.dto.PitTablePlayerResponse;
 import com.casino.casinoerp.entity.*;
 import com.casino.casinoerp.exception.ResourceConflictException;
@@ -26,13 +27,17 @@ public class PitTableCustomerAssignmentService {
     private final RolePermissionService rolePermissionService;
     private final AuthenticatedUserService authenticatedUserService;
     private final AuditLogService auditLogService;
+    private final ChipCustodyService chipCustodyService;
+    private final SessionFinancialPositionService financialPositionService;
 
     public PitTableCustomerAssignmentService(
             PitTableCustomerAssignmentRepository repository, PitTableRepository tableRepository,
             CustomerRepository customerRepository, CustomerSessionRepository sessionRepository,
             BusinessDateService businessDateService, SystemLockService systemLockService,
             CurrentUserRoleService currentUserRoleService, RolePermissionService rolePermissionService,
-            AuthenticatedUserService authenticatedUserService, AuditLogService auditLogService) {
+            AuthenticatedUserService authenticatedUserService, AuditLogService auditLogService,
+            ChipCustodyService chipCustodyService,
+            SessionFinancialPositionService financialPositionService) {
         this.repository = repository;
         this.tableRepository = tableRepository;
         this.customerRepository = customerRepository;
@@ -43,6 +48,8 @@ public class PitTableCustomerAssignmentService {
         this.rolePermissionService = rolePermissionService;
         this.authenticatedUserService = authenticatedUserService;
         this.auditLogService = auditLogService;
+        this.chipCustodyService = chipCustodyService;
+        this.financialPositionService = financialPositionService;
     }
 
     @Transactional
@@ -77,21 +84,39 @@ public class PitTableCustomerAssignmentService {
     }
 
     @Transactional
-    public PitTablePlayerResponse leave(UUID tableId, UUID assignmentId) {
+    public PitTablePlayerResponse leave(UUID tableId, UUID assignmentId,
+            LeavePitTableCustomerRequest request) {
         validateActorAndOperations("remove customers from Pit Tables");
         validateOpenBusinessDateAndLock();
-        PitTableCustomerAssignment assignment = repository.findById(assignmentId)
+        PitTableCustomerAssignment preview = repository.findById(assignmentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Pit table customer assignment not found."));
+        sessionRepository.findByIdForUpdate(preview.getCustomerSessionId())
+                .orElseThrow(() -> new ResourceNotFoundException("Customer session not found."));
+        tableRepository.findByIdForUpdate(preview.getPitTableId())
+                .orElseThrow(() -> new ResourceNotFoundException("Pit table not found."));
+        PitTableCustomerAssignment assignment = repository.findByIdForUpdate(assignmentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Pit table customer assignment not found."));
         if (!tableId.equals(assignment.getPitTableId())) {
             throw new IllegalArgumentException("Assignment does not belong to the supplied Pit Table.");
+        }
+        String settlementKey = request.idempotencyKey().trim();
+        if (assignment.getStatus() == PitTableCustomerAssignmentStatus.LEFT
+                && settlementKey.equals(assignment.getCustodySettlementKey())) {
+            return toResponse(assignment,
+                    customerRepository.findById(assignment.getCustomerId()).orElseThrow(),
+                    sessionRepository.findById(assignment.getCustomerSessionId()).orElseThrow());
         }
         if (assignment.getStatus() != PitTableCustomerAssignmentStatus.ACTIVE) {
             throw new IllegalArgumentException("Pit table customer assignment is not active.");
         }
         User actor = authenticatedUserService.getRequiredUser();
+        chipCustodyService.settleAssignmentForLeave(assignment, request.denominations(),
+                "ASSIGNMENT_SETTLEMENT:" + settlementKey, actor.getId());
         assignment.setStatus(PitTableCustomerAssignmentStatus.LEFT);
         assignment.setLeftAt(LocalDateTime.now());
         assignment.setLeftBy(actor.getId());
+        assignment.setCustodySettledAt(LocalDateTime.now());
+        assignment.setCustodySettlementKey(settlementKey);
         PitTableCustomerAssignment saved = repository.save(assignment);
         auditLogService.log("LEAVE_PIT_TABLE_CUSTOMER", "PIT_TABLE_CUSTOMER_ASSIGNMENT",
                 saved.getId(), actor.getId(), "Customer left Pit Table " + tableId);
@@ -175,6 +200,6 @@ public class PitTableCustomerAssignmentService {
         return new PitTablePlayerResponse(assignment.getId(), assignment.getPitTableId(), customer.getId(),
                 customer.getCustomerCode(), customer.getFullName(), session.getId(), session.getSessionCode(),
                 null, assignment.getBusinessDate(), assignment.getJoinedAt(), assignment.getStatus(),
-                assignment.getLeftAt());
+                assignment.getLeftAt(), financialPositionService.getPosition(session.getId()).calculatedChipPosition());
     }
 }

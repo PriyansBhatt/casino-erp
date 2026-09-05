@@ -17,6 +17,8 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 import java.time.LocalDate;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 @Data
 @Entity
@@ -61,6 +63,13 @@ public class ChipBuyIn implements Persistable<UUID> {
     @DecimalMin(value = "0.01", message = "Total chip value issued must be greater than 0")
     @Column(name = "total_chip_value_issued")
     private BigDecimal totalChipValueIssued;
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "chip_buy_in_denominations", schema = "cashier",
+            joinColumns = @JoinColumn(name = "chip_buy_in_id"))
+    @MapKeyColumn(name = "denomination")
+    @Column(name = "quantity", nullable = false)
+    private Map<Integer, Long> denominations = new LinkedHashMap<>();
 
     @Column(name = "high_value_alert")
     private Boolean highValueAlert;

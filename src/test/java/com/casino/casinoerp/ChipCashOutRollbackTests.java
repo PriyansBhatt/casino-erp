@@ -34,6 +34,7 @@ class ChipCashOutRollbackTests {
     @MockitoBean CurrentUserRoleService currentUserRoleService;
     @MockitoBean AuthenticatedUserService authenticatedUserService;
     @MockitoBean AuditLogService auditLogService;
+    @MockitoBean ChipCustodyService chipCustodyService;
 
     @Test
     void auditFailureRollsBackCashOutAndWalletTransaction() {
@@ -53,6 +54,10 @@ class ChipCashOutRollbackTests {
         when(positionService.getPosition(session.getId())).thenReturn(new SessionFinancialPositionResponse(
                 customerId, session.getId(), session.getBusinessDate(), new BigDecimal("1000"),
                 BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, new BigDecimal("1000")));
+        ChipCustodyMovement custodyMovement = new ChipCustodyMovement();
+        custodyMovement.setDenominations(java.util.Map.of(500, 1L));
+        when(chipCustodyService.recordCashOut(any(), eq(session.getId()), eq(session.getBusinessDate()),
+                anyMap(), any(), eq(actor.getId()))).thenReturn(custodyMovement);
         doThrow(new RuntimeException("audit failed")).when(auditLogService)
                 .log(eq("CREATE_CASH_OUT"), any(), any(), eq(actor.getId()), any());
 
@@ -60,7 +65,7 @@ class ChipCashOutRollbackTests {
         long walletCount = walletRepository.count();
         CreateChipCashOutRequest request = new CreateChipCashOutRequest(
                 customerId, session.getId(), new BigDecimal("100"), new BigDecimal("100"),
-                PaymentMode.CASH, null, "Rollback test", key);
+                java.util.Map.of(500, 1L), PaymentMode.CASH, null, "Rollback test", key);
 
         assertThatThrownBy(() -> service.create(request)).hasMessage("audit failed");
 

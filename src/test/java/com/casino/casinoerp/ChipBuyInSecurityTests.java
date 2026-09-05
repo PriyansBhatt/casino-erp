@@ -41,6 +41,7 @@ class ChipBuyInSecurityTests {
               "amountReceived":10000,
               "paymentMode":"CASH",
               "totalChipValueIssued":10000,
+              "denominations":{"1000":10},
               "idempotencyKey":"test-key-1"
             }
             """;
@@ -122,7 +123,7 @@ class ChipBuyInSecurityTests {
                 UUID.randomUUID(), "BI-20260808-test",
                 UUID.fromString("00000000-0000-0000-0000-000000000001"),
                 UUID.fromString("00000000-0000-0000-0000-000000000002"),
-                new BigDecimal("10000"), "CASH", new BigDecimal("10000"), null,
+                new BigDecimal("10000"), "CASH", new BigDecimal("10000"), java.util.Map.of(1000, 10L), null,
                 LocalDate.of(2026, 8, 8), LocalDateTime.now(), null, null);
     }
 }

@@ -37,6 +37,7 @@ public class ChipCashOutService {
     private final AuthenticatedUserService authenticatedUserService;
     private final UserRepository userRepository;
     private final CashierReconciliationService cashierReconciliationService;
+    private final ChipCustodyService chipCustodyService;
 
     public ChipCashOutService(
             ChipCashOutRepository repository,
@@ -51,7 +52,8 @@ public class ChipCashOutService {
             CurrentUserRoleService currentUserRoleService,
             AuthenticatedUserService authenticatedUserService,
             UserRepository userRepository,
-            CashierReconciliationService cashierReconciliationService) {
+            CashierReconciliationService cashierReconciliationService,
+            ChipCustodyService chipCustodyService) {
         this.repository = repository;
         this.customerRepository = customerRepository;
         this.sessionRepository = sessionRepository;
@@ -65,6 +67,7 @@ public class ChipCashOutService {
         this.authenticatedUserService = authenticatedUserService;
         this.userRepository = userRepository;
         this.cashierReconciliationService = cashierReconciliationService;
+        this.chipCustodyService = chipCustodyService;
     }
 
     @Transactional
@@ -99,6 +102,11 @@ public class ChipCashOutService {
 
         CustomerSession session = sessionRepository.findById(request.customerSessionId())
                 .orElseThrow(() -> new ResourceNotFoundException("Customer session not found."));
+        existing = repository.findByIdempotencyKey(idempotencyKey).orElse(null);
+        if (existing != null) {
+            validateIdempotentReplay(existing, request);
+            return toResponse(existing);
+        }
         if (!"OPEN".equalsIgnoreCase(session.getStatus())) {
             throw new IllegalArgumentException("Customer session must be OPEN.");
         }
@@ -143,6 +151,10 @@ public class ChipCashOutService {
 
         ChipCashOut saved = repository.save(cashOut);
 
+        ChipCustodyMovement custodyMovement = chipCustodyService.recordCashOut(saved.getId(), session.getId(),
+                businessDate, request.denominations(), request.totalChipValueReturned(), actor.getId());
+        saved.setDenominations(new java.util.LinkedHashMap<>(custodyMovement.getDenominations()));
+
         WalletTransaction transaction = new WalletTransaction();
         transaction.setCustomerId(saved.getCustomerId());
         transaction.setCustomerSessionId(saved.getCustomerSessionId());
@@ -180,11 +192,21 @@ public class ChipCashOutService {
                 || !request.customerSessionId().equals(existing.getCustomerSessionId())
                 || request.cashPaid().compareTo(existing.getCashPaid()) != 0
                 || request.totalChipValueReturned().compareTo(existing.getTotalChipValueReturned()) != 0
+                || !normalizeDenominations(request.denominations()).equals(existing.getDenominations())
                 || !request.paymentMode().name().equals(existing.getPaymentMode())
                 || !Objects.equals(normalizeOptional(request.paymentReference()), existing.getPaymentReference())) {
             throw new ResourceConflictException(
                     "Idempotency key has already been used for a different cash-out request.");
         }
+    }
+
+    private java.util.Map<Integer, Long> normalizeDenominations(java.util.Map<Integer, Long> values) {
+        if (values == null) return java.util.Map.of();
+        java.util.Map<Integer, Long> normalized = new java.util.LinkedHashMap<>();
+        values.forEach((denomination, quantity) -> {
+            if (quantity != null && quantity > 0) normalized.put(denomination, quantity);
+        });
+        return normalized;
     }
 
     private String normalizeOptional(String value) {
@@ -205,7 +227,7 @@ public class ChipCashOutService {
         return new ChipCashOutResponse(
                 cashOut.getId(), cashOut.getCashOutCode(), cashOut.getCustomerId(),
                 cashOut.getCustomerSessionId(), cashOut.getCashPaid(),
-                cashOut.getTotalChipValueReturned(), cashOut.getPaymentMode(),
+                cashOut.getTotalChipValueReturned(), java.util.Map.copyOf(cashOut.getDenominations()), cashOut.getPaymentMode(),
                 cashOut.getPaymentReference(), cashOut.getBusinessDate(), cashOut.getCreatedAt(),
                 createdBy, cashOut.getRemarks());
     }

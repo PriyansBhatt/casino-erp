@@ -27,9 +27,10 @@ class PitTableServiceTests {
     private final CurrentUserRoleService currentUserRoleService = mock(CurrentUserRoleService.class);
     private final com.casino.casinoerp.repository.PitTableCustomerAssignmentRepository assignmentRepository =
             mock(com.casino.casinoerp.repository.PitTableCustomerAssignmentRepository.class);
+    private final ChipCustodyService chipCustodyService = mock(ChipCustodyService.class);
     private final PitTableService service = new PitTableService(repository, businessDateService,
             systemLockService, auditLogService, currentUserRoleService, new RolePermissionService(),
-            assignmentRepository);
+            assignmentRepository, chipCustodyService);
     private final LocalDate businessDate = LocalDate.of(2026, 8, 8);
     private final CreatePitTableRequest request = new CreatePitTableRequest(
             " t-bac-10 ", "Baccarat Table 10", "Baccarat", new BigDecimal("100000"), null);
@@ -73,7 +74,7 @@ class PitTableServiceTests {
 
     @Test void closeOpenTablePersistsClosingFloatAndAudit() {
         PitTable table = openTable();
-        when(repository.findById(table.getId())).thenReturn(Optional.of(table));
+        when(repository.findByIdForUpdate(table.getId())).thenReturn(Optional.of(table));
         when(assignmentRepository.findByPitTableIdAndStatusOrderByJoinedAtAsc(
                 table.getId(), com.casino.casinoerp.entity.PitTableCustomerAssignmentStatus.ACTIVE))
                 .thenReturn(List.of());
@@ -89,7 +90,7 @@ class PitTableServiceTests {
 
     @Test void closeAlreadyClosedTableRejected() {
         PitTable table = openTable(); table.setStatus("CLOSED");
-        when(repository.findById(table.getId())).thenReturn(Optional.of(table));
+        when(repository.findByIdForUpdate(table.getId())).thenReturn(Optional.of(table));
         assertThatThrownBy(() -> service.closeTable(table.getId(), BigDecimal.ZERO))
                 .isInstanceOf(ResourceConflictException.class).hasMessageContaining("already closed");
         verify(repository, never()).save(table);
@@ -97,7 +98,7 @@ class PitTableServiceTests {
 
     @Test void closeWithActiveAssignmentsRejected() {
         PitTable table = openTable();
-        when(repository.findById(table.getId())).thenReturn(Optional.of(table));
+        when(repository.findByIdForUpdate(table.getId())).thenReturn(Optional.of(table));
         when(assignmentRepository.findByPitTableIdAndStatusOrderByJoinedAtAsc(
                 table.getId(), com.casino.casinoerp.entity.PitTableCustomerAssignmentStatus.ACTIVE))
                 .thenReturn(List.of(new com.casino.casinoerp.entity.PitTableCustomerAssignment()));
@@ -106,9 +107,23 @@ class PitTableServiceTests {
         verify(repository, never()).save(table);
     }
 
+    @Test void closeWithPhysicalTableChipsRejected() {
+        PitTable table = openTable();
+        when(repository.findByIdForUpdate(table.getId())).thenReturn(Optional.of(table));
+        when(assignmentRepository.findByPitTableIdAndStatusOrderByJoinedAtAsc(
+                table.getId(), com.casino.casinoerp.entity.PitTableCustomerAssignmentStatus.ACTIVE))
+                .thenReturn(List.of());
+        doThrow(new ResourceConflictException("All physical Pit Table chips must be returned to the cage"))
+                .when(chipCustodyService).validateTableCustodySettled(table.getId());
+
+        assertThatThrownBy(() -> service.closeTable(table.getId(), BigDecimal.ZERO))
+                .isInstanceOf(ResourceConflictException.class).hasMessageContaining("physical Pit Table chips");
+        verify(repository, never()).save(table);
+    }
+
     @Test void negativeClosingFloatRejected() {
         PitTable table = openTable();
-        when(repository.findById(table.getId())).thenReturn(Optional.of(table));
+        when(repository.findByIdForUpdate(table.getId())).thenReturn(Optional.of(table));
         assertThatThrownBy(() -> service.closeTable(table.getId(), new BigDecimal("-1")))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("zero or greater");
     }
@@ -122,14 +137,14 @@ class PitTableServiceTests {
 
     @Test void nonexistentTableRejectedOnClose() {
         UUID missing = UUID.randomUUID();
-        when(repository.findById(missing)).thenReturn(Optional.empty());
+        when(repository.findByIdForUpdate(missing)).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.closeTable(missing, BigDecimal.ZERO))
                 .hasMessageContaining("Pit table not found");
     }
 
     @Test void wrongBusinessDateRejectedOnClose() {
         PitTable table = openTable(); table.setBusinessDate(businessDate.minusDays(1));
-        when(repository.findById(table.getId())).thenReturn(Optional.of(table));
+        when(repository.findByIdForUpdate(table.getId())).thenReturn(Optional.of(table));
         assertThatThrownBy(() -> service.closeTable(table.getId(), BigDecimal.ZERO))
                 .isInstanceOf(ResourceConflictException.class).hasMessageContaining("current OPEN Business Date");
     }

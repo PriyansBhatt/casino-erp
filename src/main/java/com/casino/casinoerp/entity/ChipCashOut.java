@@ -12,6 +12,8 @@ import java.time.LocalDate;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 @Data
 @Entity
@@ -38,6 +40,13 @@ public class ChipCashOut {
     @DecimalMin(value = "1.00", message = "Total chip value returned must be greater than 0")
     @Column(name = "total_chip_value_returned")
     private BigDecimal totalChipValueReturned;
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(name = "chip_cash_out_denominations", schema = "cashier",
+            joinColumns = @JoinColumn(name = "chip_cash_out_id"))
+    @MapKeyColumn(name = "denomination")
+    @Column(name = "quantity", nullable = false)
+    private Map<Integer, Long> denominations = new LinkedHashMap<>();
 
     @NotNull(message = "Cash paid is required")
     @DecimalMin(value = "1.00", message = "Cash paid must be greater than 0")
