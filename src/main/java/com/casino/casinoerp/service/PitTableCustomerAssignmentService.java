@@ -29,6 +29,7 @@ public class PitTableCustomerAssignmentService {
     private final AuditLogService auditLogService;
     private final ChipCustodyService chipCustodyService;
     private final SessionFinancialPositionService financialPositionService;
+    private final PitTableAccessService tableAccess;
 
     public PitTableCustomerAssignmentService(
             PitTableCustomerAssignmentRepository repository, PitTableRepository tableRepository,
@@ -37,7 +38,8 @@ public class PitTableCustomerAssignmentService {
             CurrentUserRoleService currentUserRoleService, RolePermissionService rolePermissionService,
             AuthenticatedUserService authenticatedUserService, AuditLogService auditLogService,
             ChipCustodyService chipCustodyService,
-            SessionFinancialPositionService financialPositionService) {
+            SessionFinancialPositionService financialPositionService,
+            PitTableAccessService tableAccess) {
         this.repository = repository;
         this.tableRepository = tableRepository;
         this.customerRepository = customerRepository;
@@ -50,6 +52,7 @@ public class PitTableCustomerAssignmentService {
         this.auditLogService = auditLogService;
         this.chipCustodyService = chipCustodyService;
         this.financialPositionService = financialPositionService;
+        this.tableAccess = tableAccess;
     }
 
     @Transactional
@@ -59,6 +62,7 @@ public class PitTableCustomerAssignmentService {
         Customer customer = requiredActiveCustomer(request.customerId());
         CustomerSession session = requiredOpenSession(request.customerSessionId(), customer.getId(), businessDate);
         requiredOpenTable(tableId, businessDate);
+        tableAccess.requireOperationalAccess(tableId);
 
         repository.findByCustomerSessionIdAndStatus(
                         session.getId(), PitTableCustomerAssignmentStatus.ACTIVE)
@@ -94,6 +98,7 @@ public class PitTableCustomerAssignmentService {
                 .orElseThrow(() -> new ResourceNotFoundException("Customer session not found."));
         tableRepository.findByIdForUpdate(preview.getPitTableId())
                 .orElseThrow(() -> new ResourceNotFoundException("Pit table not found."));
+        tableAccess.requireOperationalAccess(preview.getPitTableId());
         PitTableCustomerAssignment assignment = repository.findByIdForUpdate(assignmentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Pit table customer assignment not found."));
         if (!tableId.equals(assignment.getPitTableId())) {
@@ -127,6 +132,7 @@ public class PitTableCustomerAssignmentService {
     public List<PitTablePlayerResponse> getActivePlayers(UUID tableId) {
         tableRepository.findById(tableId)
                 .orElseThrow(() -> new ResourceNotFoundException("Pit table not found."));
+        tableAccess.requireOperationalAccess(tableId);
         return repository.findByPitTableIdAndStatusOrderByJoinedAtAsc(
                         tableId, PitTableCustomerAssignmentStatus.ACTIVE).stream()
                 .map(value -> toResponse(value,
@@ -138,6 +144,7 @@ public class PitTableCustomerAssignmentService {
     public List<PitTablePlayerResponse> getPlayerHistory(UUID tableId) {
         tableRepository.findById(tableId)
                 .orElseThrow(() -> new ResourceNotFoundException("Pit table not found."));
+        tableAccess.requireOperationalAccess(tableId);
         return repository.findByPitTableIdOrderByJoinedAtAsc(tableId).stream()
                 .map(value -> toResponse(value,
                         customerRepository.findById(value.getCustomerId()).orElseThrow(),
@@ -184,7 +191,7 @@ public class PitTableCustomerAssignmentService {
     }
 
     private PitTable requiredOpenTable(UUID tableId, LocalDate businessDate) {
-        PitTable table = tableRepository.findById(tableId)
+        PitTable table = tableRepository.findByIdForUpdate(tableId)
                 .orElseThrow(() -> new ResourceNotFoundException("Pit table not found."));
         if (!"OPEN".equalsIgnoreCase(table.getStatus())) {
             throw new IllegalArgumentException("Pit table must be OPEN.");

@@ -8,6 +8,10 @@ import com.casino.casinoerp.dto.PitTableReconciliationResponse;
 import com.casino.casinoerp.service.LegacyPitTableReconciliationService;
 import com.casino.casinoerp.service.PitTableReconciliationService;
 import com.casino.casinoerp.service.PitTableOperationService;
+import com.casino.casinoerp.service.PitTableModeService;
+import com.casino.casinoerp.dto.PitTableModeResponse;
+import com.casino.casinoerp.dto.EligiblePitTablePlayerResponse;
+import com.casino.casinoerp.dto.ApiResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
@@ -25,16 +29,19 @@ public class PitTableController {
     private final PitTableReconciliationService reconciliationService;
     private final LegacyPitTableReconciliationService legacyReconciliationService;
     private final PitTableOperationService operationService;
+    private final PitTableModeService tableModeService;
 
     public PitTableController(
             PitTableService service,
             PitTableReconciliationService reconciliationService,
             LegacyPitTableReconciliationService legacyReconciliationService,
-            PitTableOperationService operationService) {
+            PitTableOperationService operationService,
+            PitTableModeService tableModeService) {
         this.service = service;
         this.reconciliationService = reconciliationService;
         this.legacyReconciliationService = legacyReconciliationService;
         this.operationService = operationService;
+        this.tableModeService = tableModeService;
     }
 
     @GetMapping("/open")
@@ -83,6 +90,18 @@ public class PitTableController {
     @GetMapping
     public List<com.casino.casinoerp.dto.PitTableOverviewResponse> getAllTables() {
         return operationService.overview();
+    }
+
+    @GetMapping("/{tableId}/mode")
+    public ApiResponse<PitTableModeResponse> tableMode(@PathVariable UUID tableId) {
+        return ApiResponse.success("Pit Table Mode loaded successfully", tableModeService.snapshot(tableId));
+    }
+
+    @GetMapping("/{tableId}/eligible-players")
+    public ApiResponse<List<EligiblePitTablePlayerResponse>> eligiblePlayers(
+            @PathVariable UUID tableId, @RequestParam String query) {
+        return ApiResponse.success("Eligible Pit Table players loaded successfully",
+                tableModeService.eligiblePlayers(tableId, query));
     }
 
     private PitTableResponse toResponse(PitTable table) {

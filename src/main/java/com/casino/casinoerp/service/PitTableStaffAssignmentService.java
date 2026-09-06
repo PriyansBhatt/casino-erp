@@ -29,12 +29,14 @@ public class PitTableStaffAssignmentService {
     private final RolePermissionService permissions;
     private final AuthenticatedUserService authenticatedUser;
     private final AuditLogService audit;
+    private final PitTableAccessService tableAccess;
 
     public PitTableStaffAssignmentService(
             PitTableStaffAssignmentRepository assignments, PitTableRepository tables,
             UserRepository users, BusinessDateService businessDates, SystemLockService systemLock,
             CurrentUserRoleService currentRole, RolePermissionService permissions,
-            AuthenticatedUserService authenticatedUser, AuditLogService audit) {
+            AuthenticatedUserService authenticatedUser, AuditLogService audit,
+            PitTableAccessService tableAccess) {
         this.assignments = assignments;
         this.tables = tables;
         this.users = users;
@@ -44,12 +46,14 @@ public class PitTableStaffAssignmentService {
         this.permissions = permissions;
         this.authenticatedUser = authenticatedUser;
         this.audit = audit;
+        this.tableAccess = tableAccess;
     }
 
     @Transactional(readOnly = true)
     public List<PitTableStaffAssignmentResponse> getActive(UUID tableId) {
         requireViewPermission();
         requireTable(tableId);
+        tableAccess.requireOperationalAccess(tableId);
         return assignments.findByPitTableIdAndEndedAtIsNullOrderByAssignmentRoleAsc(tableId)
                 .stream().map(this::response).toList();
     }
@@ -58,6 +62,7 @@ public class PitTableStaffAssignmentService {
     public List<PitTableStaffAssignmentResponse> getHistory(UUID tableId) {
         requireViewPermission();
         requireTable(tableId);
+        tableAccess.requireOperationalAccess(tableId);
         return assignments.findByPitTableIdOrderByStartedAtAsc(tableId)
                 .stream().map(this::response).toList();
     }

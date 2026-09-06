@@ -34,10 +34,11 @@ class PitTableCustomerAssignmentServiceTests {
     private final AuditLogService auditService = mock(AuditLogService.class);
     private final ChipCustodyService custodyService = mock(ChipCustodyService.class);
     private final SessionFinancialPositionService financialService = mock(SessionFinancialPositionService.class);
+    private final PitTableAccessService tableAccess = mock(PitTableAccessService.class);
     private final PitTableCustomerAssignmentService service = new PitTableCustomerAssignmentService(
             repository, tableRepository, customerRepository, sessionRepository, businessDateService,
             systemLockService, roleService, new RolePermissionService(), userService, auditService,
-            custodyService, financialService);
+            custodyService, financialService, tableAccess);
 
     private final UUID tableId = UUID.randomUUID();
     private final UUID customerId = UUID.randomUUID();
@@ -53,6 +54,7 @@ class PitTableCustomerAssignmentServiceTests {
         when(sessionRepository.findById(sessionId)).thenReturn(Optional.of(session("OPEN", customerId, businessDate)));
         when(sessionRepository.findByIdForUpdate(sessionId)).thenReturn(Optional.of(session("OPEN", customerId, businessDate)));
         when(tableRepository.findById(tableId)).thenReturn(Optional.of(table("OPEN", businessDate)));
+        when(tableRepository.findByIdForUpdate(tableId)).thenReturn(Optional.of(table("OPEN", businessDate)));
         when(tableRepository.findByIdForUpdate(tableId)).thenReturn(Optional.of(table("OPEN", businessDate)));
         when(repository.findByCustomerSessionIdAndStatus(sessionId, PitTableCustomerAssignmentStatus.ACTIVE))
                 .thenReturn(Optional.empty());
@@ -99,7 +101,7 @@ class PitTableCustomerAssignmentServiceTests {
     }
 
     @Test void closedTableRejected() {
-        when(tableRepository.findById(tableId)).thenReturn(Optional.of(table("CLOSED", businessDate)));
+        when(tableRepository.findByIdForUpdate(tableId)).thenReturn(Optional.of(table("CLOSED", businessDate)));
         assertThatThrownBy(() -> service.assign(tableId, request)).hasMessage("Pit table must be OPEN.");
     }
 

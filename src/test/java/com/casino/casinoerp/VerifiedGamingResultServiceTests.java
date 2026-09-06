@@ -32,10 +32,11 @@ class VerifiedGamingResultServiceTests {
     private final CurrentUserRoleService currentUserRoleService = mock(CurrentUserRoleService.class);
     private final AuthenticatedUserService authenticatedUserService = mock(AuthenticatedUserService.class);
     private final AuditLogService auditLogService = mock(AuditLogService.class);
+    private final PitTableAccessService tableAccess = mock(PitTableAccessService.class);
     private final VerifiedGamingResultService service = new VerifiedGamingResultService(
             repository, customerRepository, sessionRepository, tableRepository, assignmentRepository, businessDateService,
             systemLockService, currentUserRoleService, new RolePermissionService(),
-            authenticatedUserService, auditLogService);
+            authenticatedUserService, auditLogService, tableAccess);
 
     private final UUID customerId = UUID.randomUUID();
     private final UUID sessionId = UUID.randomUUID();
@@ -48,8 +49,8 @@ class VerifiedGamingResultServiceTests {
     void setUp() {
         when(currentUserRoleService.getCurrentRole()).thenReturn(Optional.of(Role.PIT_SUPERVISOR));
         when(customerRepository.findById(customerId)).thenReturn(Optional.of(customer(CustomerStatus.ACTIVE)));
-        when(sessionRepository.findById(sessionId)).thenReturn(Optional.of(session("OPEN", customerId, businessDate)));
-        when(tableRepository.findById(tableId)).thenReturn(Optional.of(table("OPEN", businessDate)));
+        when(sessionRepository.findByIdForUpdate(sessionId)).thenReturn(Optional.of(session("OPEN", customerId, businessDate)));
+        when(tableRepository.findByIdForUpdate(tableId)).thenReturn(Optional.of(table("OPEN", businessDate)));
         when(assignmentRepository.findById(assignmentId)).thenReturn(Optional.of(assignment()));
         when(repository.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
         when(businessDateService.getCurrentBusinessDate()).thenReturn(businessDate);
@@ -90,32 +91,32 @@ class VerifiedGamingResultServiceTests {
     }
 
     @Test void missingSessionRejected() {
-        when(sessionRepository.findById(sessionId)).thenReturn(Optional.empty());
+        when(sessionRepository.findByIdForUpdate(sessionId)).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.create(request(BigDecimal.ONE)))
                 .isInstanceOf(ResourceNotFoundException.class).hasMessage("Customer session not found.");
     }
 
     @Test void wrongCustomerSessionRejected() {
-        when(sessionRepository.findById(sessionId)).thenReturn(Optional.of(session("OPEN", UUID.randomUUID(), businessDate)));
+        when(sessionRepository.findByIdForUpdate(sessionId)).thenReturn(Optional.of(session("OPEN", UUID.randomUUID(), businessDate)));
         assertThatThrownBy(() -> service.create(request(BigDecimal.ONE)))
                 .hasMessage("Customer session does not belong to the supplied customer.");
     }
 
     @Test void closedSessionRejected() {
-        when(sessionRepository.findById(sessionId)).thenReturn(Optional.of(session("CLOSED", customerId, businessDate)));
+        when(sessionRepository.findByIdForUpdate(sessionId)).thenReturn(Optional.of(session("CLOSED", customerId, businessDate)));
         assertThatThrownBy(() -> service.create(request(BigDecimal.ONE)))
                 .hasMessage("Customer session must be OPEN.");
     }
 
     @Test void closedTableRejected() {
-        when(tableRepository.findById(tableId)).thenReturn(Optional.of(table("CLOSED", businessDate)));
+        when(tableRepository.findByIdForUpdate(tableId)).thenReturn(Optional.of(table("CLOSED", businessDate)));
         assertThatThrownBy(() -> service.create(request(BigDecimal.ONE)))
                 .hasMessage("Pit table must be OPEN.");
         verify(repository, never()).save(any());
     }
 
     @Test void wrongBusinessDateRejected() {
-        when(sessionRepository.findById(sessionId)).thenReturn(Optional.of(session("OPEN", customerId, businessDate.minusDays(1))));
+        when(sessionRepository.findByIdForUpdate(sessionId)).thenReturn(Optional.of(session("OPEN", customerId, businessDate.minusDays(1))));
         assertThatThrownBy(() -> service.create(request(BigDecimal.ONE)))
                 .hasMessage("Customer session does not belong to the current OPEN Business Date.");
     }

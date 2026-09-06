@@ -5,6 +5,7 @@ import com.casino.casinoerp.exception.ResourceNotFoundException;
 import com.casino.casinoerp.exception.ResourceConflictException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.*;
 
@@ -12,6 +13,13 @@ import java.util.stream.Collectors;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    @ExceptionHandler(AccessDeniedException.class)
+    public ResponseEntity<ApiResponse<Object>> handleAccessDeniedException(AccessDeniedException ex) {
+        return ResponseEntity
+                .status(HttpStatus.FORBIDDEN)
+                .body(ApiResponse.error(ex.getMessage()));
+    }
 
     @ExceptionHandler(ResourceConflictException.class)
     public ResponseEntity<ApiResponse<Object>> handleResourceConflictException(ResourceConflictException ex) {

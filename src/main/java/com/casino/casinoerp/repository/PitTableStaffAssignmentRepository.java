@@ -24,6 +24,8 @@ public interface PitTableStaffAssignmentRepository extends JpaRepository<PitTabl
             UUID staffUserId, PitTableStaffAssignmentRole assignmentRole);
     Optional<PitTableStaffAssignment> findByAssignmentIdempotencyKey(String key);
     Optional<PitTableStaffAssignment> findByEndIdempotencyKey(String key);
+    boolean existsByPitTableIdAndStaffUserIdAndAssignmentRoleAndEndedAtIsNull(
+            UUID pitTableId, UUID staffUserId, PitTableStaffAssignmentRole assignmentRole);
 
     @Query("select assignment.pitTableId as pitTableId, assignment.id as assignmentId, "
             + "user.id as userId, user.username as username, user.fullName as displayName, "

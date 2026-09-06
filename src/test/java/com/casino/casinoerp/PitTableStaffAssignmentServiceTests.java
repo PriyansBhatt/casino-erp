@@ -46,12 +46,13 @@ class PitTableStaffAssignmentServiceTests {
     @Mock RolePermissionService permissions;
     @Mock AuthenticatedUserService authenticatedUser;
     @Mock AuditLogService audit;
+    @Mock PitTableAccessService tableAccess;
     PitTableStaffAssignmentService service;
 
     @BeforeEach
     void setUp() {
         service = new PitTableStaffAssignmentService(assignments, tables, users, businessDates,
-                systemLock, currentRole, permissions, authenticatedUser, audit);
+                systemLock, currentRole, permissions, authenticatedUser, audit, tableAccess);
     }
 
     @ParameterizedTest

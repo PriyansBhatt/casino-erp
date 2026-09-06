@@ -33,6 +33,7 @@ public class PitTableOperationService {
     private final RolePermissionService permissions;
     private final AuthenticatedUserService authenticatedUser;
     private final AuditLogService audit;
+    private final PitTableAccessService tableAccess;
 
     public PitTableOperationService(
             PhysicalPitTableRepository physicalTables, PitTableRepository operations,
@@ -42,7 +43,8 @@ public class PitTableOperationService {
             ChipCustodyMovementRepository custodyMovements, ChipCustodyService custody,
             BusinessDateService businessDates, SystemLockService systemLock,
             CurrentUserRoleService currentRole, RolePermissionService permissions,
-            AuthenticatedUserService authenticatedUser, AuditLogService audit) {
+            AuthenticatedUserService authenticatedUser, AuditLogService audit,
+            PitTableAccessService tableAccess) {
         this.physicalTables = physicalTables;
         this.operations = operations;
         this.assignments = assignments;
@@ -56,6 +58,7 @@ public class PitTableOperationService {
         this.permissions = permissions;
         this.authenticatedUser = authenticatedUser;
         this.audit = audit;
+        this.tableAccess = tableAccess;
     }
 
     @Transactional
@@ -141,12 +144,27 @@ public class PitTableOperationService {
         Map<UUID, Map<PitTableStaffAssignmentRole, PitTableActiveStaffSummary>> staffByOperation =
                 activeStaffByOperation(operationIds);
 
+        if (tableAccess.isDealer()) {
+            UUID assignedOperationId = tableAccess.currentDealerOperationId().orElse(null);
+            if (assignedOperationId == null) {
+                return List.of();
+            }
+            return physical.stream()
+                    .filter(table -> {
+                        PitTable operation = operationByPhysicalTable.get(table.getId());
+                        return operation != null && assignedOperationId.equals(operation.getId());
+                    })
+                    .map(table -> overview(table, date, operationByPhysicalTable.get(table.getId()), staffByOperation))
+                    .toList();
+        }
+
         return physical.stream().map(table -> overview(table, date,
                 operationByPhysicalTable.get(table.getId()), staffByOperation)).toList();
     }
 
     @Transactional(readOnly = true)
     public List<PitTableResponse> history(UUID physicalTableId) {
+        tableAccess.requireManagementAccess();
         if (!physicalTables.existsById(physicalTableId)) {
             throw new ResourceNotFoundException("Physical Pit Table not found.");
         }

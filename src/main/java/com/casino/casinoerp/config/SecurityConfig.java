@@ -30,6 +30,10 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/login", "/api/health").permitAll()
 
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/pit-tables/*/mode", "/api/pit-tables/*/eligible-players")
+                        .hasAnyRole(Role.DEALER.name(), Role.PIT_SUPERVISOR.name(), Role.SUPER_ADMIN.name())
+
                         .requestMatchers(HttpMethod.GET, "/api/users", "/api/users/**")
                         .hasRole(Role.SUPER_ADMIN.name())
 
@@ -148,6 +152,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/pit-tables/*/staff", "/api/pit-tables/*/staff/**")
                         .hasAnyRole(Role.PIT_SUPERVISOR.name(), Role.SUPER_ADMIN.name())
 
+                        .requestMatchers(HttpMethod.GET, "/api/pit-tables/physical/*/history")
+                        .hasAnyRole(Role.PIT_SUPERVISOR.name(), Role.SUPER_ADMIN.name())
+
                         .requestMatchers(HttpMethod.GET, "/api/pit-tables", "/api/pit-tables/**")
                         .hasAnyRole(
                                 Role.PIT_SUPERVISOR.name(),
@@ -166,7 +173,6 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.PUT, "/api/pit-tables/*/close")
                         .hasAnyRole(
                                 Role.PIT_SUPERVISOR.name(),
-                                Role.DEALER.name(),
                                 Role.SUPER_ADMIN.name()
                         )
 
@@ -212,10 +218,24 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/chip-custody/movements/current")
                         .hasAnyRole(Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())
 
-                        .requestMatchers(HttpMethod.GET, "/api/chip-custody/cage",
+                        .requestMatchers(HttpMethod.GET, "/api/chip-custody/cage")
+                        .hasAnyRole(Role.CASHIER.name(), Role.PIT_SUPERVISOR.name(),
+                                Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())
+
+                        .requestMatchers(HttpMethod.GET,
                                 "/api/chip-custody/customer-sessions/*", "/api/chip-custody/tables/*")
                         .hasAnyRole(Role.CASHIER.name(), Role.PIT_SUPERVISOR.name(), Role.DEALER.name(),
                                 Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())
+
+                        .requestMatchers("/api/pit-table-transactions", "/api/pit-table-transactions/**")
+                        .denyAll()
+
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/dashboard/pit-summary",
+                                "/api/dashboard/table-results",
+                                "/api/dashboard/pit-performance",
+                                "/api/dashboard/overall-position")
+                        .hasAnyRole(Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())
 
                         .requestMatchers(HttpMethod.GET, "/api/cashier-reconciliation/current")
                         .hasAnyRole(Role.CASHIER.name(), Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())

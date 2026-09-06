@@ -31,4 +31,17 @@ public interface PitTableCustomerAssignmentRepository extends JpaRepository<PitT
             "and assignment.status = com.casino.casinoerp.entity.PitTableCustomerAssignmentStatus.ACTIVE")
     Optional<PitTableCustomerAssignment> findActiveForUpdate(
             @Param("sessionId") UUID sessionId, @Param("tableId") UUID tableId);
+
+    @Query(value = """
+            select a.id as "assignmentId", c.id as "customerId",
+                   c.customer_code as "customerCode", c.full_name as "customerName",
+                   s.id as "customerSessionId", s.session_code as "sessionCode",
+                   a.joined_at as "joinedAt"
+              from casino.pit_table_customer_assignments a
+              join customer.customers c on c.id = a.customer_id
+              join session.customer_sessions s on s.id = a.customer_session_id
+             where a.pit_table_id = :tableId and a.status = 'ACTIVE'
+             order by a.joined_at
+            """, nativeQuery = true)
+    List<PitTableModePlayerProjection> findActiveModePlayers(@Param("tableId") UUID tableId);
 }

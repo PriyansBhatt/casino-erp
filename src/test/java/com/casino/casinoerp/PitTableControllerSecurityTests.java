@@ -9,6 +9,7 @@ import com.casino.casinoerp.service.PitTableService;
 import com.casino.casinoerp.service.PitTableReconciliationService;
 import com.casino.casinoerp.service.LegacyPitTableReconciliationService;
 import com.casino.casinoerp.service.PitTableOperationService;
+import com.casino.casinoerp.service.PitTableModeService;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,7 +42,30 @@ class PitTableControllerSecurityTests {
     @MockitoBean PitTableReconciliationService reconciliationService;
     @MockitoBean LegacyPitTableReconciliationService legacyReconciliationService;
     @MockitoBean PitTableOperationService operationService;
+    @MockitoBean PitTableModeService tableModeService;
     @MockitoBean JwtService jwtService;
+
+    @ParameterizedTest
+    @ValueSource(strings = {"DEALER", "PIT_SUPERVISOR", "SUPER_ADMIN"})
+    void approvedRolesReachTableModeContracts(String role) throws Exception {
+        mockMvc.perform(get("/api/pit-tables/{tableId}/mode", TABLE_ID)
+                        .with(user(role.toLowerCase()).roles(role)))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/pit-tables/{tableId}/eligible-players", TABLE_ID)
+                        .param("query", "CU").with(user(role.toLowerCase()).roles(role)))
+                .andExpect(status().isOk());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"CASHIER", "RECEPTIONIST", "DIRECTOR"})
+    void unrelatedRolesCannotReachTableModeContracts(String role) throws Exception {
+        mockMvc.perform(get("/api/pit-tables/{tableId}/mode", TABLE_ID)
+                        .with(user(role.toLowerCase()).roles(role)))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(get("/api/pit-tables/{tableId}/eligible-players", TABLE_ID)
+                        .param("query", "CU").with(user(role.toLowerCase()).roles(role)))
+                .andExpect(status().isForbidden());
+    }
 
     @ParameterizedTest
     @ValueSource(strings = {"PIT_SUPERVISOR", "DEALER", "SUPER_ADMIN"})
@@ -94,7 +118,7 @@ class PitTableControllerSecurityTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"PIT_SUPERVISOR", "DEALER", "SUPER_ADMIN"})
+    @ValueSource(strings = {"PIT_SUPERVISOR", "SUPER_ADMIN"})
     void pitRolesCanCloseTables(String role) throws Exception {
         when(service.closeTable(TABLE_ID, new java.math.BigDecimal("90000"))).thenReturn(table());
         mockMvc.perform(put("/api/pit-tables/{tableId}/close", TABLE_ID)
@@ -103,7 +127,7 @@ class PitTableControllerSecurityTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"DIRECTOR", "CASHIER", "RECEPTIONIST"})
+    @ValueSource(strings = {"DEALER", "DIRECTOR", "CASHIER", "RECEPTIONIST"})
     void unrelatedRolesCannotCloseTables(String role) throws Exception {
         mockMvc.perform(put("/api/pit-tables/{tableId}/close", TABLE_ID)
                         .param("closingFloat", "90000").with(user(role.toLowerCase()).roles(role)))

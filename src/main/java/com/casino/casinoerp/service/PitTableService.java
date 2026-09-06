@@ -26,6 +26,7 @@ public class PitTableService {
     private final RolePermissionService rolePermissionService;
     private final PitTableCustomerAssignmentRepository assignmentRepository;
     private final ChipCustodyService chipCustodyService;
+    private final PitTableAccessService tableAccess;
 
     public PitTableService(
             PitTableRepository repository,
@@ -35,7 +36,7 @@ public class PitTableService {
             CurrentUserRoleService currentUserRoleService,
             RolePermissionService rolePermissionService,
             PitTableCustomerAssignmentRepository assignmentRepository,
-            ChipCustodyService chipCustodyService) {
+            ChipCustodyService chipCustodyService, PitTableAccessService tableAccess) {
 
         this.repository = repository;
         this.businessDateService = businessDateService;
@@ -45,6 +46,7 @@ public class PitTableService {
         this.rolePermissionService = rolePermissionService;
         this.assignmentRepository = assignmentRepository;
         this.chipCustodyService = chipCustodyService;
+        this.tableAccess = tableAccess;
     }
 
     private void validatePitRole() {
@@ -58,8 +60,10 @@ public class PitTableService {
     }
 
     public PitTable getTableById(UUID tableId) {
-        return repository.findById(tableId)
+        PitTable table = repository.findById(tableId)
                 .orElseThrow(() -> new RuntimeException("Pit table not found"));
+        tableAccess.requireOperationalAccess(tableId);
+        return table;
     }
 
     @Transactional
@@ -73,7 +77,11 @@ public class PitTableService {
             );
         }
 
-        validatePitRole();
+        if (!currentUserRoleService.getCurrentRole()
+                .map(rolePermissionService::canClosePitTable).orElse(false)) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "Only Pit Supervisor or Super Admin can close Pit Tables.");
+        }
 
         PitTable table = repository.findByIdForUpdate(tableId)
                 .orElseThrow(() -> new RuntimeException("Pit table not found"));
@@ -157,7 +165,13 @@ public class PitTableService {
     }
 
     public List<PitTable> getOpenTables() {
-        return repository.findByStatusIgnoreCase("OPEN");
+        List<PitTable> openTables = repository.findByStatusIgnoreCase("OPEN");
+        if (!tableAccess.isDealer()) {
+            return openTables;
+        }
+        return tableAccess.currentDealerOperationId()
+                .map(id -> openTables.stream().filter(table -> id.equals(table.getId())).toList())
+                .orElseGet(List::of);
     }
 
     public List<PitTable> getAllTables() {

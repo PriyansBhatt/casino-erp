@@ -4,6 +4,7 @@ import com.casino.casinoerp.dto.CreatePitTableRequest;
 import com.casino.casinoerp.entity.PitTable;
 import com.casino.casinoerp.exception.ResourceConflictException;
 import com.casino.casinoerp.repository.PitTableRepository;
+import com.casino.casinoerp.security.Role;
 import com.casino.casinoerp.service.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -28,15 +29,17 @@ class PitTableServiceTests {
     private final com.casino.casinoerp.repository.PitTableCustomerAssignmentRepository assignmentRepository =
             mock(com.casino.casinoerp.repository.PitTableCustomerAssignmentRepository.class);
     private final ChipCustodyService chipCustodyService = mock(ChipCustodyService.class);
+    private final PitTableAccessService tableAccess = mock(PitTableAccessService.class);
     private final PitTableService service = new PitTableService(repository, businessDateService,
             systemLockService, auditLogService, currentUserRoleService, new RolePermissionService(),
-            assignmentRepository, chipCustodyService);
+            assignmentRepository, chipCustodyService, tableAccess);
     private final LocalDate businessDate = LocalDate.of(2026, 8, 8);
     private final CreatePitTableRequest request = new CreatePitTableRequest(
             " t-bac-10 ", "Baccarat Table 10", "Baccarat", new BigDecimal("100000"), null);
 
     @BeforeEach void setUp() {
         when(currentUserRoleService.getCurrentUserRole()).thenReturn("PIT_SUPERVISOR");
+        when(currentUserRoleService.getCurrentRole()).thenReturn(Optional.of(Role.PIT_SUPERVISOR));
         when(businessDateService.getCurrentBusinessDate()).thenReturn(businessDate);
         when(repository.findByTableCodeIgnoreCase("T-BAC-10")).thenReturn(Optional.empty());
         when(repository.save(any())).thenAnswer(call -> {

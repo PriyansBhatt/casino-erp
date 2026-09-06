@@ -28,6 +28,7 @@ public class ChipCustodyService {
     private final RolePermissionService permissions;
     private final AuditLogService audit;
     private final SessionFinancialPositionService financialPositions;
+    private final PitTableAccessService tableAccess;
 
     public ChipCustodyService(ChipCustodyMovementRepository movements,
             ChipCustodyInventoryRepository inventory, PitTableRepository pitTables,
@@ -36,7 +37,8 @@ public class ChipCustodyService {
             BusinessDateService businessDates,
             SystemLockService systemLock, AuthenticatedUserService authenticatedUsers,
             CurrentUserRoleService currentRoles, RolePermissionService permissions,
-            AuditLogService audit, SessionFinancialPositionService financialPositions) {
+            AuditLogService audit, SessionFinancialPositionService financialPositions,
+            PitTableAccessService tableAccess) {
         this.movements = movements;
         this.inventory = inventory;
         this.pitTables = pitTables;
@@ -49,6 +51,7 @@ public class ChipCustodyService {
         this.permissions = permissions;
         this.audit = audit;
         this.financialPositions = financialPositions;
+        this.tableAccess = tableAccess;
     }
 
     @Transactional
@@ -265,12 +268,17 @@ public class ChipCustodyService {
     @Transactional(readOnly = true)
     public ChipCustodyInventoryResponse cageInventory() {
         validateCustodyReadRole();
+        if (tableAccess.isDealer()) {
+            throw new org.springframework.security.access.AccessDeniedException(
+                    "Dealers cannot view cage chip custody.");
+        }
         return inventory(CAGE_KEY, ChipCustodyLocationType.CAGE, null);
     }
 
     @Transactional(readOnly = true)
     public ChipCustodyInventoryResponse customerSessionInventory(UUID sessionId) {
         validateCustodyReadRole();
+        tableAccess.requireCustomerSessionAccess(sessionId);
         return inventory(locationKey(ChipCustodyLocationType.CUSTOMER_SESSION, sessionId),
                 ChipCustodyLocationType.CUSTOMER_SESSION, sessionId);
     }
@@ -278,6 +286,9 @@ public class ChipCustodyService {
     @Transactional(readOnly = true)
     public ChipCustodyInventoryResponse tableInventory(UUID tableId) {
         validateCustodyReadRole();
+        if (tableAccess.isDealer()) {
+            tableAccess.requireOperationalAccess(tableId);
+        }
         return inventory(locationKey(ChipCustodyLocationType.PIT_TABLE, tableId),
                 ChipCustodyLocationType.PIT_TABLE, tableId);
     }
@@ -506,6 +517,7 @@ public class ChipCustodyService {
                     "Customer session does not belong to the current OPEN Business Date.");
         }
         PitTable table = validateOpenTableForUpdate(tableId, date);
+        tableAccess.requireOperationalAccess(tableId);
         PitTableCustomerAssignment assignment = assignments.findActiveForUpdate(sessionId, tableId)
                 .orElseThrow(() -> new ResourceConflictException(
                         "Customer session must be actively assigned to this Pit Table."));

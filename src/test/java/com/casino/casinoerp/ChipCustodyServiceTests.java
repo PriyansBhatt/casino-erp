@@ -31,10 +31,11 @@ class ChipCustodyServiceTests {
     private final CurrentUserRoleService currentRoles = mock(CurrentUserRoleService.class);
     private final AuditLogService audit = mock(AuditLogService.class);
     private final SessionFinancialPositionService financialPositions = mock(SessionFinancialPositionService.class);
+    private final PitTableAccessService tableAccess = mock(PitTableAccessService.class);
     private final ChipCustodyService service = new ChipCustodyService(movements, inventory, pitTables,
             customerSessions, assignments,
             businessDates, systemLock, authenticatedUsers, currentRoles, new RolePermissionService(), audit,
-            financialPositions);
+            financialPositions, tableAccess);
 
     private final UUID actorId = UUID.randomUUID();
     private final UUID sessionId = UUID.randomUUID();

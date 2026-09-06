@@ -40,6 +40,7 @@ public class VerifiedGamingResultService {
     private final RolePermissionService rolePermissionService;
     private final AuthenticatedUserService authenticatedUserService;
     private final AuditLogService auditLogService;
+    private final PitTableAccessService tableAccess;
 
     public VerifiedGamingResultService(
             VerifiedGamingResultRepository repository,
@@ -52,7 +53,8 @@ public class VerifiedGamingResultService {
             CurrentUserRoleService currentUserRoleService,
             RolePermissionService rolePermissionService,
             AuthenticatedUserService authenticatedUserService,
-            AuditLogService auditLogService) {
+            AuditLogService auditLogService,
+            PitTableAccessService tableAccess) {
         this.repository = repository;
         this.customerRepository = customerRepository;
         this.sessionRepository = sessionRepository;
@@ -64,6 +66,7 @@ public class VerifiedGamingResultService {
         this.rolePermissionService = rolePermissionService;
         this.authenticatedUserService = authenticatedUserService;
         this.auditLogService = auditLogService;
+        this.tableAccess = tableAccess;
     }
 
     @Transactional
@@ -73,6 +76,7 @@ public class VerifiedGamingResultService {
                 .orElse(false)) {
             throw new RuntimeException("Access denied. Only Dealer, Pit Supervisor or Super Admin can record verified gaming results.");
         }
+        tableAccess.requireOperationalAccess(request.pitTableId());
 
         String idempotencyKey = request.idempotencyKey().trim();
         Map<Integer, Integer> denominations = validateAndNormalizeDenominations(request.denominations());
@@ -97,8 +101,13 @@ public class VerifiedGamingResultService {
             throw new IllegalArgumentException("Customer must be ACTIVE to record a verified gaming result.");
         }
 
-        CustomerSession session = sessionRepository.findById(request.customerSessionId())
+        CustomerSession session = sessionRepository.findByIdForUpdate(request.customerSessionId())
                 .orElseThrow(() -> new ResourceNotFoundException("Customer session not found."));
+        existing = repository.findByIdempotencyKey(idempotencyKey).orElse(null);
+        if (existing != null) {
+            validateIdempotentReplay(existing, request, denominations, calculatedAmount);
+            return toResponse(existing, null);
+        }
         if (!request.customerId().equals(session.getCustomerId())) {
             throw new IllegalArgumentException("Customer session does not belong to the supplied customer.");
         }
@@ -111,8 +120,9 @@ public class VerifiedGamingResultService {
             throw new IllegalArgumentException("Customer session does not belong to the current OPEN Business Date.");
         }
 
-        PitTable table = tableRepository.findById(request.pitTableId())
+        PitTable table = tableRepository.findByIdForUpdate(request.pitTableId())
                 .orElseThrow(() -> new ResourceNotFoundException("Pit table not found."));
+        tableAccess.requireOperationalAccess(table.getId());
         if (!"OPEN".equalsIgnoreCase(table.getStatus())) {
             throw new IllegalArgumentException("Pit table must be OPEN.");
         }
@@ -173,8 +183,15 @@ public class VerifiedGamingResultService {
     }
 
     public List<VerifiedGamingResultResponse> getBySession(UUID sessionId) {
-        return repository.findByCustomerSessionIdOrderByCreatedAtAsc(sessionId)
-                .stream()
+        tableAccess.requireCustomerSessionAccess(sessionId);
+        var stream = repository.findByCustomerSessionIdOrderByCreatedAtAsc(sessionId).stream();
+        if (tableAccess.isDealer()) {
+            UUID operationId = tableAccess.currentDealerOperationId()
+                    .orElseThrow(() -> new org.springframework.security.access.AccessDeniedException(
+                            "Active Dealer assignment to a Pit Table operation is required."));
+            stream = stream.filter(result -> operationId.equals(result.getPitTableId()));
+        }
+        return stream
                 .map(result -> toResponse(result, null))
                 .toList();
     }

@@ -20,6 +20,7 @@ import com.casino.casinoerp.service.BusinessDateService;
 import com.casino.casinoerp.service.ChipCustodyService;
 import com.casino.casinoerp.service.CurrentUserRoleService;
 import com.casino.casinoerp.service.PitTableOperationService;
+import com.casino.casinoerp.service.PitTableAccessService;
 import com.casino.casinoerp.service.RolePermissionService;
 import com.casino.casinoerp.service.SystemLockService;
 import org.junit.jupiter.api.BeforeEach;
@@ -72,6 +73,7 @@ class PitTableOperationServiceTests {
     @Mock RolePermissionService permissions;
     @Mock AuthenticatedUserService authenticatedUser;
     @Mock AuditLogService audit;
+    @Mock PitTableAccessService tableAccess;
 
     private PitTableOperationService service;
 
@@ -79,7 +81,7 @@ class PitTableOperationServiceTests {
     void setUp() {
         service = new PitTableOperationService(physicalTables, operations, assignments,
                 results, staffAssignments, custodyMovements, custody, businessDates, systemLock, currentRole,
-                permissions, authenticatedUser, audit);
+                permissions, authenticatedUser, audit, tableAccess);
     }
 
     @Test
@@ -229,6 +231,38 @@ class PitTableOperationServiceTests {
         assertEquals(null, response.activeDealer());
         assertEquals(null, response.activeSupervisor());
         verify(staffAssignments, never()).findActiveStaffForOverview(any());
+    }
+
+    @Test
+    void dealerOverviewContainsOnlyAssignedOperationAndNoNotOpenedTables() {
+        PhysicalPitTable assignedPhysical = physical();
+        PhysicalPitTable notOpened = physical();
+        notOpened.setId(UUID.randomUUID());
+        notOpened.setTableCode("BAC-002");
+        PitTable assigned = operation(OPERATION_ID, CURRENT_DATE, "OPEN");
+        when(businessDates.getCurrentBusinessDate()).thenReturn(CURRENT_DATE);
+        when(physicalTables.findAllByOrderByTableCodeAsc()).thenReturn(List.of(assignedPhysical, notOpened));
+        when(operations.findByPhysicalTableIdAndBusinessDate(PHYSICAL_ID, CURRENT_DATE))
+                .thenReturn(Optional.of(assigned));
+        when(operations.findByPhysicalTableIdAndBusinessDate(notOpened.getId(), CURRENT_DATE))
+                .thenReturn(Optional.empty());
+        when(tableAccess.isDealer()).thenReturn(true);
+        when(tableAccess.currentDealerOperationId()).thenReturn(Optional.of(OPERATION_ID));
+
+        var response = service.overview();
+
+        assertEquals(1, response.size());
+        assertEquals(OPERATION_ID, response.getFirst().operationId());
+    }
+
+    @Test
+    void unassignedDealerOverviewIsEmpty() {
+        when(businessDates.getCurrentBusinessDate()).thenReturn(CURRENT_DATE);
+        when(physicalTables.findAllByOrderByTableCodeAsc()).thenReturn(List.of(physical()));
+        when(tableAccess.isDealer()).thenReturn(true);
+        when(tableAccess.currentDealerOperationId()).thenReturn(Optional.empty());
+
+        assertEquals(List.of(), service.overview());
     }
 
     @Test

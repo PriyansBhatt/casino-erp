@@ -84,6 +84,10 @@ public class RolePermissionService {
         return role == Role.PIT_SUPERVISOR || role == Role.SUPER_ADMIN;
     }
 
+    public boolean canClosePitTable(Role role) {
+        return role == Role.PIT_SUPERVISOR || role == Role.SUPER_ADMIN;
+    }
+
     public boolean canManagePitTableStaff(Role role) {
         return role == Role.PIT_SUPERVISOR || role == Role.SUPER_ADMIN;
     }
