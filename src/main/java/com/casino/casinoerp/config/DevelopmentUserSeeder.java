@@ -23,6 +23,12 @@ public class DevelopmentUserSeeder implements ApplicationRunner {
     static final String CASHIER_PASSWORD = "cashier123";
     static final String SUPER_ADMIN_USERNAME = "superadmin";
     static final String SUPER_ADMIN_PASSWORD = "superadmin123";
+    static final String PIT_SUPERVISOR_USERNAME = "pitsupervisor";
+    static final String PIT_SUPERVISOR_PASSWORD = "pitsupervisor123";
+    static final String DEALER_USERNAME = "dealer";
+    static final String DEALER_PASSWORD = "dealer123";
+    static final String SECOND_DEALER_USERNAME = "dealer2";
+    static final String SECOND_DEALER_PASSWORD = "dealer2123";
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -90,6 +96,69 @@ public class DevelopmentUserSeeder implements ApplicationRunner {
             superAdmin.setCreatedAt(LocalDateTime.now());
 
             userRepository.save(superAdmin);
+        };
+    }
+
+    @Bean
+    ApplicationRunner developmentPitSupervisorSeeder() {
+        return args -> {
+            if (userRepository.findByUsername(PIT_SUPERVISOR_USERNAME) != null) {
+                return;
+            }
+
+            User pitSupervisor = new User();
+            pitSupervisor.setId(UUID.randomUUID());
+            pitSupervisor.setUsername(PIT_SUPERVISOR_USERNAME);
+            pitSupervisor.setPasswordHash(passwordEncoder.encode(PIT_SUPERVISOR_PASSWORD));
+            pitSupervisor.setFullName("Development Pit Supervisor");
+            pitSupervisor.setEmail("pitsupervisor@localhost");
+            pitSupervisor.setStatus("ACTIVE");
+            pitSupervisor.setRole(Role.PIT_SUPERVISOR.name());
+            pitSupervisor.setCreatedAt(LocalDateTime.now());
+
+            userRepository.save(pitSupervisor);
+        };
+    }
+
+    @Bean
+    ApplicationRunner developmentDealerSeeder() {
+        return args -> {
+            if (userRepository.findByUsername(DEALER_USERNAME) != null) {
+                return;
+            }
+
+            User dealer = new User();
+            dealer.setId(UUID.randomUUID());
+            dealer.setUsername(DEALER_USERNAME);
+            dealer.setPasswordHash(passwordEncoder.encode(DEALER_PASSWORD));
+            dealer.setFullName("Development Dealer");
+            dealer.setEmail("dealer@localhost");
+            dealer.setStatus("ACTIVE");
+            dealer.setRole(Role.DEALER.name());
+            dealer.setCreatedAt(LocalDateTime.now());
+
+            userRepository.save(dealer);
+        };
+    }
+
+    @Bean
+    ApplicationRunner developmentSecondDealerSeeder() {
+        return args -> {
+            if (userRepository.findByUsername(SECOND_DEALER_USERNAME) != null) {
+                return;
+            }
+
+            User dealer = new User();
+            dealer.setId(UUID.randomUUID());
+            dealer.setUsername(SECOND_DEALER_USERNAME);
+            dealer.setPasswordHash(passwordEncoder.encode(SECOND_DEALER_PASSWORD));
+            dealer.setFullName("Development Dealer 2");
+            dealer.setEmail("dealer2@localhost");
+            dealer.setStatus("ACTIVE");
+            dealer.setRole(Role.DEALER.name());
+            dealer.setCreatedAt(LocalDateTime.now());
+
+            userRepository.save(dealer);
         };
     }
 }
