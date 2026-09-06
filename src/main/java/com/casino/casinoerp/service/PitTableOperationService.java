@@ -13,6 +13,8 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -22,6 +24,7 @@ public class PitTableOperationService {
     private final PitTableRepository operations;
     private final PitTableCustomerAssignmentRepository assignments;
     private final VerifiedGamingResultRepository results;
+    private final PitTableStaffAssignmentRepository staffAssignments;
     private final ChipCustodyMovementRepository custodyMovements;
     private final ChipCustodyService custody;
     private final BusinessDateService businessDates;
@@ -35,6 +38,7 @@ public class PitTableOperationService {
             PhysicalPitTableRepository physicalTables, PitTableRepository operations,
             PitTableCustomerAssignmentRepository assignments,
             VerifiedGamingResultRepository results,
+            PitTableStaffAssignmentRepository staffAssignments,
             ChipCustodyMovementRepository custodyMovements, ChipCustodyService custody,
             BusinessDateService businessDates, SystemLockService systemLock,
             CurrentUserRoleService currentRole, RolePermissionService permissions,
@@ -43,6 +47,7 @@ public class PitTableOperationService {
         this.operations = operations;
         this.assignments = assignments;
         this.results = results;
+        this.staffAssignments = staffAssignments;
         this.custodyMovements = custodyMovements;
         this.custody = custody;
         this.businessDates = businessDates;
@@ -126,8 +131,18 @@ public class PitTableOperationService {
     public List<PitTableOverviewResponse> overview() {
         businessDates.validateBusinessDateIsOpen();
         LocalDate date = businessDates.getCurrentBusinessDate();
-        return physicalTables.findAllByOrderByTableCodeAsc().stream()
-                .map(physical -> overview(physical, date)).toList();
+        List<PhysicalPitTable> physical = physicalTables.findAllByOrderByTableCodeAsc();
+        Map<UUID, PitTable> operationByPhysicalTable = new HashMap<>();
+        physical.forEach(table -> operations.findByPhysicalTableIdAndBusinessDate(table.getId(), date)
+                .ifPresent(operation -> operationByPhysicalTable.put(table.getId(), operation)));
+
+        List<UUID> operationIds = operationByPhysicalTable.values().stream()
+                .map(PitTable::getId).toList();
+        Map<UUID, Map<PitTableStaffAssignmentRole, PitTableActiveStaffSummary>> staffByOperation =
+                activeStaffByOperation(operationIds);
+
+        return physical.stream().map(table -> overview(table, date,
+                operationByPhysicalTable.get(table.getId()), staffByOperation)).toList();
     }
 
     @Transactional(readOnly = true)
@@ -139,14 +154,17 @@ public class PitTableOperationService {
                 .stream().map(this::response).toList();
     }
 
-    private PitTableOverviewResponse overview(PhysicalPitTable physical, LocalDate date) {
-        PitTable operation = operations.findByPhysicalTableIdAndBusinessDate(physical.getId(), date)
-                .orElse(null);
+    private PitTableOverviewResponse overview(
+            PhysicalPitTable physical,
+            LocalDate date,
+            PitTable operation,
+            Map<UUID, Map<PitTableStaffAssignmentRole, PitTableActiveStaffSummary>> staffByOperation) {
         if (operation == null) {
             return new PitTableOverviewResponse(physical.getId(), physical.getTableCode(),
                     physical.getTableName(), physical.getGameType(), physical.getMaxPlayers(),
                     physical.getStatus(), null, date, "NOT_OPENED", null,
-                    0, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
+                    0, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
+                    null, null);
         }
         long players = assignments.findByPitTableIdAndStatusOrderByJoinedAtAsc(
                 operation.getId(), PitTableCustomerAssignmentStatus.ACTIVE).size();
@@ -160,11 +178,31 @@ public class PitTableOperationService {
         BigDecimal losses = tableResults.stream()
                 .filter(value -> value.getResultType() == VerifiedGamingResultType.LOSS)
                 .map(VerifiedGamingResult::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        Map<PitTableStaffAssignmentRole, PitTableActiveStaffSummary> activeStaff =
+                staffByOperation.getOrDefault(operation.getId(), Map.of());
         return new PitTableOverviewResponse(physical.getId(), physical.getTableCode(),
                 physical.getTableName(), physical.getGameType(), physical.getMaxPlayers(),
                 physical.getStatus(), operation.getId(), operation.getBusinessDate(),
                 operation.getStatus(), operation.getOpeningFloat(), players, chipIn,
-                wins, losses, losses.subtract(wins));
+                wins, losses, losses.subtract(wins),
+                activeStaff.get(PitTableStaffAssignmentRole.DEALER),
+                activeStaff.get(PitTableStaffAssignmentRole.PIT_SUPERVISOR));
+    }
+
+    private Map<UUID, Map<PitTableStaffAssignmentRole, PitTableActiveStaffSummary>> activeStaffByOperation(
+            List<UUID> operationIds) {
+        if (operationIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<UUID, Map<PitTableStaffAssignmentRole, PitTableActiveStaffSummary>> grouped = new HashMap<>();
+        for (PitTableActiveStaffProjection row : staffAssignments.findActiveStaffForOverview(operationIds)) {
+            PitTableActiveStaffSummary summary = new PitTableActiveStaffSummary(
+                    row.getAssignmentId(), row.getUserId(), row.getUsername(), row.getDisplayName(),
+                    row.getAssignmentRole(), row.getStartedAt());
+            grouped.computeIfAbsent(row.getPitTableId(), ignored -> new HashMap<>())
+                    .putIfAbsent(row.getAssignmentRole(), summary);
+        }
+        return grouped;
     }
 
     private void validateReplay(PitTable replay, UUID physicalTableId, String remarks,

@@ -19,5 +19,7 @@ public record PitTableOverviewResponse(
         BigDecimal chipIn,
         BigDecimal verifiedWins,
         BigDecimal verifiedLosses,
-        BigDecimal netPosition) {
+        BigDecimal netPosition,
+        PitTableActiveStaffSummary activeDealer,
+        PitTableActiveStaffSummary activeSupervisor) {
 }

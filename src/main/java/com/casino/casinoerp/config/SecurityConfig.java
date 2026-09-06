@@ -139,6 +139,15 @@ public class SecurityConfig {
                                 Role.SUPER_ADMIN.name()
                         )
 
+                        .requestMatchers(HttpMethod.GET, "/api/pit-tables/staff/candidates")
+                        .hasAnyRole(Role.PIT_SUPERVISOR.name(), Role.SUPER_ADMIN.name())
+
+                        .requestMatchers(HttpMethod.GET, "/api/pit-tables/*/staff", "/api/pit-tables/*/staff/history")
+                        .hasAnyRole(Role.PIT_SUPERVISOR.name(), Role.DEALER.name(), Role.SUPER_ADMIN.name())
+
+                        .requestMatchers(HttpMethod.POST, "/api/pit-tables/*/staff", "/api/pit-tables/*/staff/**")
+                        .hasAnyRole(Role.PIT_SUPERVISOR.name(), Role.SUPER_ADMIN.name())
+
                         .requestMatchers(HttpMethod.GET, "/api/pit-tables", "/api/pit-tables/**")
                         .hasAnyRole(
                                 Role.PIT_SUPERVISOR.name(),

@@ -84,6 +84,14 @@ public class RolePermissionService {
         return role == Role.PIT_SUPERVISOR || role == Role.SUPER_ADMIN;
     }
 
+    public boolean canManagePitTableStaff(Role role) {
+        return role == Role.PIT_SUPERVISOR || role == Role.SUPER_ADMIN;
+    }
+
+    public boolean canViewPitTableStaff(Role role) {
+        return role == Role.DEALER || canManagePitTableStaff(role);
+    }
+
     public boolean canInitializeChipCustody(Role role) {
         return role == Role.SUPER_ADMIN;
     }

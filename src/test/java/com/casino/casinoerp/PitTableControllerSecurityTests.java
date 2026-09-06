@@ -51,7 +51,7 @@ class PitTableControllerSecurityTests {
                 TABLE_ID, table.getTableCode(), table.getTableName(), table.getGameType(), null,
                 "ACTIVE", TABLE_ID, java.time.LocalDate.of(2026, 9, 2), "OPEN",
                 table.getOpeningFloat(), 0, java.math.BigDecimal.ZERO, java.math.BigDecimal.ZERO,
-                java.math.BigDecimal.ZERO, java.math.BigDecimal.ZERO)));
+                java.math.BigDecimal.ZERO, java.math.BigDecimal.ZERO, null, null)));
         var actor = user(role.toLowerCase()).roles(role);
         mockMvc.perform(get("/api/pit-tables").with(actor))
                 .andExpect(status().isOk())

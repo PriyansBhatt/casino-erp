@@ -10,6 +10,8 @@ import com.casino.casinoerp.repository.ChipCustodyMovementRepository;
 import com.casino.casinoerp.repository.PhysicalPitTableRepository;
 import com.casino.casinoerp.repository.PitTableCustomerAssignmentRepository;
 import com.casino.casinoerp.repository.PitTableRepository;
+import com.casino.casinoerp.repository.PitTableActiveStaffProjection;
+import com.casino.casinoerp.repository.PitTableStaffAssignmentRepository;
 import com.casino.casinoerp.repository.VerifiedGamingResultRepository;
 import com.casino.casinoerp.security.Role;
 import com.casino.casinoerp.service.AuditLogService;
@@ -29,6 +31,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -39,6 +42,8 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -48,12 +53,17 @@ class PitTableOperationServiceTests {
     private static final UUID OPERATION_ID = UUID.fromString("20000000-0000-0000-0000-000000000001");
     private static final UUID HISTORICAL_ID = UUID.fromString("30000000-0000-0000-0000-000000000001");
     private static final UUID ACTOR_ID = UUID.fromString("40000000-0000-0000-0000-000000000001");
+    private static final UUID DEALER_ASSIGNMENT_ID = UUID.fromString("50000000-0000-0000-0000-000000000001");
+    private static final UUID DEALER_USER_ID = UUID.fromString("60000000-0000-0000-0000-000000000001");
+    private static final UUID SUPERVISOR_ASSIGNMENT_ID = UUID.fromString("50000000-0000-0000-0000-000000000002");
+    private static final UUID SUPERVISOR_USER_ID = UUID.fromString("60000000-0000-0000-0000-000000000002");
     private static final LocalDate CURRENT_DATE = LocalDate.of(2026, 9, 2);
 
     @Mock PhysicalPitTableRepository physicalTables;
     @Mock PitTableRepository operations;
     @Mock PitTableCustomerAssignmentRepository assignments;
     @Mock VerifiedGamingResultRepository results;
+    @Mock PitTableStaffAssignmentRepository staffAssignments;
     @Mock ChipCustodyMovementRepository custodyMovements;
     @Mock ChipCustodyService custody;
     @Mock BusinessDateService businessDates;
@@ -68,7 +78,7 @@ class PitTableOperationServiceTests {
     @BeforeEach
     void setUp() {
         service = new PitTableOperationService(physicalTables, operations, assignments,
-                results, custodyMovements, custody, businessDates, systemLock, currentRole,
+                results, staffAssignments, custodyMovements, custody, businessDates, systemLock, currentRole,
                 permissions, authenticatedUser, audit);
     }
 
@@ -216,6 +226,9 @@ class PitTableOperationServiceTests {
         assertEquals(PHYSICAL_ID, response.physicalTableId());
         assertEquals("NOT_OPENED", response.status());
         assertEquals(null, response.operationId());
+        assertEquals(null, response.activeDealer());
+        assertEquals(null, response.activeSupervisor());
+        verify(staffAssignments, never()).findActiveStaffForOverview(any());
     }
 
     @Test
@@ -229,6 +242,7 @@ class PitTableOperationServiceTests {
                 org.mockito.ArgumentMatchers.eq(OPERATION_ID), any())).thenReturn(List.of());
         when(custodyMovements.findByPitTableIdOrderByCreatedAtAsc(OPERATION_ID)).thenReturn(List.of());
         when(results.findByPitTableId(OPERATION_ID)).thenReturn(List.of());
+        when(staffAssignments.findActiveStaffForOverview(List.of(OPERATION_ID))).thenReturn(List.of());
 
         var response = service.overview().getFirst();
 
@@ -236,6 +250,146 @@ class PitTableOperationServiceTests {
         assertEquals(CURRENT_DATE, response.businessDate());
         verify(operations).findByPhysicalTableIdAndBusinessDate(PHYSICAL_ID, CURRENT_DATE);
         verify(operations, never()).findByPhysicalTableIdOrderByBusinessDateDesc(PHYSICAL_ID);
+        verify(staffAssignments).findActiveStaffForOverview(List.of(OPERATION_ID));
+    }
+
+    @Test
+    void overviewReturnsSafeActiveDealerAndSupervisorSummariesWithoutChangingFinancialFields() {
+        PitTable current = operation(OPERATION_ID, CURRENT_DATE, "OPEN");
+        when(businessDates.getCurrentBusinessDate()).thenReturn(CURRENT_DATE);
+        when(physicalTables.findAllByOrderByTableCodeAsc()).thenReturn(List.of(physical()));
+        when(operations.findByPhysicalTableIdAndBusinessDate(PHYSICAL_ID, CURRENT_DATE))
+                .thenReturn(Optional.of(current));
+        when(assignments.findByPitTableIdAndStatusOrderByJoinedAtAsc(
+                org.mockito.ArgumentMatchers.eq(OPERATION_ID), any())).thenReturn(List.of());
+        when(custodyMovements.findByPitTableIdOrderByCreatedAtAsc(OPERATION_ID)).thenReturn(List.of());
+        when(results.findByPitTableId(OPERATION_ID)).thenReturn(List.of());
+        LocalDateTime dealerStarted = LocalDateTime.of(2026, 9, 2, 10, 0);
+        LocalDateTime supervisorStarted = LocalDateTime.of(2026, 9, 2, 9, 30);
+        PitTableActiveStaffProjection dealer =
+                staffRow(OPERATION_ID, DEALER_ASSIGNMENT_ID, DEALER_USER_ID, "dealer",
+                        "Development Dealer", com.casino.casinoerp.entity.PitTableStaffAssignmentRole.DEALER,
+                        dealerStarted);
+        PitTableActiveStaffProjection supervisor =
+                staffRow(OPERATION_ID, SUPERVISOR_ASSIGNMENT_ID, SUPERVISOR_USER_ID, "pitsupervisor",
+                        "Development Pit Supervisor",
+                        com.casino.casinoerp.entity.PitTableStaffAssignmentRole.PIT_SUPERVISOR,
+                        supervisorStarted);
+        when(staffAssignments.findActiveStaffForOverview(List.of(OPERATION_ID)))
+                .thenReturn(List.of(dealer, supervisor));
+
+        var response = service.overview().getFirst();
+
+        assertEquals(DEALER_ASSIGNMENT_ID, response.activeDealer().assignmentId());
+        assertEquals(DEALER_USER_ID, response.activeDealer().userId());
+        assertEquals("dealer", response.activeDealer().username());
+        assertEquals("Development Dealer", response.activeDealer().displayName());
+        assertEquals(dealerStarted, response.activeDealer().startedAt());
+        assertEquals(SUPERVISOR_ASSIGNMENT_ID, response.activeSupervisor().assignmentId());
+        assertEquals(SUPERVISOR_USER_ID, response.activeSupervisor().userId());
+        assertEquals("pitsupervisor", response.activeSupervisor().username());
+        assertEquals(supervisorStarted, response.activeSupervisor().startedAt());
+        assertEquals(new BigDecimal("100000"), response.openingFloat());
+        assertEquals(BigDecimal.ZERO, response.chipIn());
+        assertEquals(BigDecimal.ZERO, response.verifiedWins());
+        assertEquals(BigDecimal.ZERO, response.verifiedLosses());
+        assertEquals(BigDecimal.ZERO, response.netPosition());
+    }
+
+    @Test
+    void overviewSupportsEitherRoleOrNoActiveStaff() {
+        PitTable current = operation(OPERATION_ID, CURRENT_DATE, "OPEN");
+        stubOverview(current);
+        PitTableActiveStaffProjection dealer =
+                staffRow(OPERATION_ID, DEALER_ASSIGNMENT_ID, DEALER_USER_ID, "dealer", null,
+                        com.casino.casinoerp.entity.PitTableStaffAssignmentRole.DEALER,
+                        LocalDateTime.of(2026, 9, 2, 10, 0));
+        when(staffAssignments.findActiveStaffForOverview(List.of(OPERATION_ID)))
+                .thenReturn(List.of(dealer));
+        var dealerOnly = service.overview().getFirst();
+        assertEquals(DEALER_ASSIGNMENT_ID, dealerOnly.activeDealer().assignmentId());
+        assertEquals(null, dealerOnly.activeSupervisor());
+
+        PitTableActiveStaffProjection supervisor =
+                staffRow(OPERATION_ID, SUPERVISOR_ASSIGNMENT_ID, SUPERVISOR_USER_ID, "pitsupervisor", null,
+                        com.casino.casinoerp.entity.PitTableStaffAssignmentRole.PIT_SUPERVISOR,
+                        LocalDateTime.of(2026, 9, 2, 9, 30));
+        when(staffAssignments.findActiveStaffForOverview(List.of(OPERATION_ID)))
+                .thenReturn(List.of(supervisor));
+        var supervisorOnly = service.overview().getFirst();
+        assertEquals(null, supervisorOnly.activeDealer());
+        assertEquals(SUPERVISOR_ASSIGNMENT_ID, supervisorOnly.activeSupervisor().assignmentId());
+
+        when(staffAssignments.findActiveStaffForOverview(List.of(OPERATION_ID))).thenReturn(List.of());
+        var noStaff = service.overview().getFirst();
+        assertEquals(null, noStaff.activeDealer());
+        assertEquals(null, noStaff.activeSupervisor());
+    }
+
+    @Test
+    void overviewBatchesStaffForAllOperationsAndKeepsAssignmentsWithTheirOperation() {
+        UUID secondPhysicalId = UUID.fromString("10000000-0000-0000-0000-000000000002");
+        UUID secondOperationId = UUID.fromString("20000000-0000-0000-0000-000000000002");
+        PhysicalPitTable secondPhysical = physical();
+        secondPhysical.setId(secondPhysicalId);
+        secondPhysical.setTableCode("BAC-002");
+        PitTable secondOperation = operation(secondOperationId, CURRENT_DATE, "OPEN");
+        secondOperation.setPhysicalTableId(secondPhysicalId);
+        secondOperation.setTableCode("BAC-002");
+        when(businessDates.getCurrentBusinessDate()).thenReturn(CURRENT_DATE);
+        when(physicalTables.findAllByOrderByTableCodeAsc()).thenReturn(List.of(physical(), secondPhysical));
+        when(operations.findByPhysicalTableIdAndBusinessDate(PHYSICAL_ID, CURRENT_DATE))
+                .thenReturn(Optional.of(operation(OPERATION_ID, CURRENT_DATE, "OPEN")));
+        when(operations.findByPhysicalTableIdAndBusinessDate(secondPhysicalId, CURRENT_DATE))
+                .thenReturn(Optional.of(secondOperation));
+        when(assignments.findByPitTableIdAndStatusOrderByJoinedAtAsc(any(), any())).thenReturn(List.of());
+        when(custodyMovements.findByPitTableIdOrderByCreatedAtAsc(any())).thenReturn(List.of());
+        when(results.findByPitTableId(any())).thenReturn(List.of());
+        PitTableActiveStaffProjection firstDealer =
+                staffRow(OPERATION_ID, DEALER_ASSIGNMENT_ID, DEALER_USER_ID, "dealer-a", null,
+                                com.casino.casinoerp.entity.PitTableStaffAssignmentRole.DEALER,
+                                LocalDateTime.of(2026, 9, 2, 10, 0));
+        PitTableActiveStaffProjection secondSupervisor =
+                staffRow(secondOperationId, SUPERVISOR_ASSIGNMENT_ID, SUPERVISOR_USER_ID,
+                                "supervisor-b", null,
+                                com.casino.casinoerp.entity.PitTableStaffAssignmentRole.PIT_SUPERVISOR,
+                                LocalDateTime.of(2026, 9, 2, 10, 0));
+        when(staffAssignments.findActiveStaffForOverview(List.of(OPERATION_ID, secondOperationId)))
+                .thenReturn(List.of(firstDealer, secondSupervisor));
+
+        var response = service.overview();
+
+        assertEquals("dealer-a", response.get(0).activeDealer().username());
+        assertEquals(null, response.get(0).activeSupervisor());
+        assertEquals(null, response.get(1).activeDealer());
+        assertEquals("supervisor-b", response.get(1).activeSupervisor().username());
+        verify(staffAssignments, times(1))
+                .findActiveStaffForOverview(List.of(OPERATION_ID, secondOperationId));
+    }
+
+    private void stubOverview(PitTable current) {
+        when(businessDates.getCurrentBusinessDate()).thenReturn(CURRENT_DATE);
+        when(physicalTables.findAllByOrderByTableCodeAsc()).thenReturn(List.of(physical()));
+        when(operations.findByPhysicalTableIdAndBusinessDate(PHYSICAL_ID, CURRENT_DATE))
+                .thenReturn(Optional.of(current));
+        when(assignments.findByPitTableIdAndStatusOrderByJoinedAtAsc(
+                org.mockito.ArgumentMatchers.eq(OPERATION_ID), any())).thenReturn(List.of());
+        when(custodyMovements.findByPitTableIdOrderByCreatedAtAsc(OPERATION_ID)).thenReturn(List.of());
+        when(results.findByPitTableId(OPERATION_ID)).thenReturn(List.of());
+    }
+
+    private PitTableActiveStaffProjection staffRow(
+            UUID operationId, UUID assignmentId, UUID userId, String username, String displayName,
+            com.casino.casinoerp.entity.PitTableStaffAssignmentRole role, LocalDateTime startedAt) {
+        PitTableActiveStaffProjection row = mock(PitTableActiveStaffProjection.class);
+        when(row.getPitTableId()).thenReturn(operationId);
+        when(row.getAssignmentId()).thenReturn(assignmentId);
+        when(row.getUserId()).thenReturn(userId);
+        when(row.getUsername()).thenReturn(username);
+        when(row.getDisplayName()).thenReturn(displayName);
+        when(row.getAssignmentRole()).thenReturn(role);
+        when(row.getStartedAt()).thenReturn(startedAt);
+        return row;
     }
 
     private void allow(Role role) {
