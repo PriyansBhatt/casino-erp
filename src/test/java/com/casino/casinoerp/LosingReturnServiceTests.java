@@ -25,7 +25,7 @@ class LosingReturnServiceTests {
     private final UUID customerId=UUID.randomUUID(), sessionId=UUID.randomUUID(), actorId=UUID.randomUUID(); private final LocalDate date=LocalDate.of(2026,8,8);
     @BeforeEach void setup(){ when(roles.getCurrentUserRole()).thenReturn(Role.CASHIER.name()); when(dates.getCurrentBusinessDate()).thenReturn(date);
         Customer c=new Customer(); c.setId(customerId); c.setStatus(CustomerStatus.ACTIVE); when(customers.findById(customerId)).thenReturn(Optional.of(c));
-        CustomerSession s=new CustomerSession(); s.setId(sessionId); s.setCustomerId(customerId); s.setStatus("OPEN"); s.setBusinessDate(date); when(sessions.findFirstByCustomerIdAndStatusIgnoreCase(customerId,"OPEN")).thenReturn(Optional.of(s));
+        CustomerSession s=new CustomerSession(); s.setId(sessionId); s.setCustomerId(customerId); s.setStatus("OPEN"); s.setBusinessDate(date); when(sessions.findFirstByCustomerIdAndStatusIgnoreCase(customerId,"OPEN")).thenReturn(Optional.of(s)); when(sessions.findByIdForUpdate(sessionId)).thenReturn(Optional.of(s));
         User u=new User(); u.setId(actorId); when(users.getRequiredUser()).thenReturn(u); when(repo.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
         when(repo.findByCustomerIdAndBusinessDateOrderByCreatedAtAsc(customerId,date)).thenReturn(List.of()); when(buyIns.findByCustomerIdAndBusinessDate(customerId,date)).thenReturn(List.of());
         when(cashOuts.findByCustomerIdAndBusinessDate(customerId,date)).thenReturn(List.of()); when(results.findByCustomerIdAndBusinessDateOrderByCreatedAtAsc(customerId,date)).thenReturn(List.of());
@@ -56,5 +56,9 @@ class LosingReturnServiceTests {
     @Test void unauthorizedRoleRejected(){ when(roles.getCurrentUserRole()).thenReturn(Role.RECEPTIONIST.name()); assertThatThrownBy(()->service.eligibility(customerId)).hasMessageContaining("Access denied"); }
     @Test void identicalIdempotentReplayDoesNotWriteAgain(){ LosingReturn prior=new LosingReturn(); prior.setId(UUID.randomUUID()); prior.setCustomerId(customerId); prior.setCustomerSessionId(sessionId); prior.setLosingReturnCode("LR-1"); prior.setBusinessDate(date); prior.setEligibleVerifiedLoss(new BigDecimal("20000")); prior.setReturnRate(new BigDecimal("0.10")); prior.setAmountPaid(new BigDecimal("2000")); prior.setPaymentMode("CASH");
         when(repo.findByIdempotencyKey("replay")).thenReturn(Optional.of(prior)); var value=service.create(new CreateLosingReturnRequest(customerId,sessionId,"replay",null)); assertThat(value.id()).isEqualTo(prior.getId()); verify(repo,never()).save(any()); }
+    @Test void secondAttemptRecalculatesAfterFirstReturnAndFindsNoEligibility(){ when(results.findByCustomerIdAndBusinessDateOrderByCreatedAtAsc(customerId,date)).thenReturn(List.of(result(VerifiedGamingResultType.LOSS,"50000")));
+        var first=service.create(new CreateLosingReturnRequest(customerId,sessionId,"first",null)); LosingReturn prior=new LosingReturn(); prior.setAmountPaid(first.amountPaid());
+        when(repo.findByCustomerIdAndBusinessDateOrderByCreatedAtAsc(customerId,date)).thenReturn(List.of(prior));
+        assertThatThrownBy(()->service.create(new CreateLosingReturnRequest(customerId,sessionId,"second",null))).hasMessageContaining("no eligible verified net loss"); verify(repo,times(1)).save(any()); }
     private VerifiedGamingResult result(VerifiedGamingResultType type,String amount){ VerifiedGamingResult v=new VerifiedGamingResult(); v.setResultType(type); v.setAmount(new BigDecimal(amount)); return v; }
 }

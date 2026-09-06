@@ -52,7 +52,7 @@ class ChipBuyInServiceTests {
     void setUp() {
         when(currentUserRoleService.getCurrentUserRole()).thenReturn(Role.CASHIER.name());
         when(customerRepository.findById(customerId)).thenReturn(Optional.of(customer(CustomerStatus.ACTIVE)));
-        when(sessionRepository.findById(sessionId)).thenReturn(Optional.of(session("OPEN", customerId, businessDate)));
+        when(sessionRepository.findByIdForUpdate(sessionId)).thenReturn(Optional.of(session("OPEN", customerId, businessDate)));
         when(businessDateService.getCurrentBusinessDate()).thenReturn(businessDate);
         when(authenticatedUserService.getRequiredUser()).thenReturn(actor());
         when(walletTransactionService.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
@@ -135,25 +135,25 @@ class ChipBuyInServiceTests {
     }
 
     @Test void missingSessionIsRejected() {
-        when(sessionRepository.findById(sessionId)).thenReturn(Optional.empty());
+        when(sessionRepository.findByIdForUpdate(sessionId)).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.create(request(PaymentMode.CASH, null)))
                 .isInstanceOf(ResourceNotFoundException.class).hasMessage("Customer session not found.");
     }
 
     @Test void closedSessionIsRejected() {
-        when(sessionRepository.findById(sessionId)).thenReturn(Optional.of(session("CLOSED", customerId, businessDate)));
+        when(sessionRepository.findByIdForUpdate(sessionId)).thenReturn(Optional.of(session("CLOSED", customerId, businessDate)));
         assertThatThrownBy(() -> service.create(request(PaymentMode.CASH, null)))
                 .hasMessage("Customer session must be OPEN.");
     }
 
     @Test void customerSessionMismatchIsRejected() {
-        when(sessionRepository.findById(sessionId)).thenReturn(Optional.of(session("OPEN", UUID.randomUUID(), businessDate)));
+        when(sessionRepository.findByIdForUpdate(sessionId)).thenReturn(Optional.of(session("OPEN", UUID.randomUUID(), businessDate)));
         assertThatThrownBy(() -> service.create(request(PaymentMode.CASH, null)))
                 .hasMessage("Customer session does not belong to the supplied customer.");
     }
 
     @Test void sessionBusinessDateMismatchIsRejected() {
-        when(sessionRepository.findById(sessionId)).thenReturn(Optional.of(session("OPEN", customerId, businessDate.minusDays(1))));
+        when(sessionRepository.findByIdForUpdate(sessionId)).thenReturn(Optional.of(session("OPEN", customerId, businessDate.minusDays(1))));
         assertThatThrownBy(() -> service.create(request(PaymentMode.CASH, null)))
                 .hasMessage("Customer session does not belong to the current OPEN Business Date.");
     }

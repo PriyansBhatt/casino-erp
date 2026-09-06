@@ -109,7 +109,7 @@ public class ChipBuyInService {
             throw new IllegalArgumentException("Customer must be ACTIVE to create a buy-in.");
         }
 
-        CustomerSession session = customerSessionRepository.findById(request.customerSessionId())
+        CustomerSession session = customerSessionRepository.findByIdForUpdate(request.customerSessionId())
                 .orElseThrow(() -> new ResourceNotFoundException("Customer session not found."));
         existing = repository.findByIdempotencyKey(idempotencyKey).orElse(null);
         if (existing != null) {

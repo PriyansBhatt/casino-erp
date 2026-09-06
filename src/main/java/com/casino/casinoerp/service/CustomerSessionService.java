@@ -4,10 +4,15 @@ import com.casino.casinoerp.dto.ReceptionSessionResponse;
 import com.casino.casinoerp.entity.Customer;
 import com.casino.casinoerp.entity.CustomerStatus;
 import com.casino.casinoerp.entity.CustomerSession;
+import com.casino.casinoerp.entity.PitTableCustomerAssignmentStatus;
+import com.casino.casinoerp.exception.ResourceConflictException;
 import com.casino.casinoerp.exception.ResourceNotFoundException;
 import com.casino.casinoerp.repository.CustomerSessionRepository;
+import com.casino.casinoerp.repository.PitTableCustomerAssignmentRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -24,6 +29,8 @@ public class CustomerSessionService {
     private final RolePermissionService rolePermissionService;
     private final CurrentUserRoleService currentUserRoleService;
     private final CustomerService customerService;
+    private final PitTableCustomerAssignmentRepository pitTableAssignmentRepository;
+    private final SessionFinancialPositionService financialPositionService;
 
     public CustomerSessionService(
             CustomerSessionRepository repository,
@@ -32,7 +39,9 @@ public class CustomerSessionService {
             AuditLogService auditLogService,
             RolePermissionService rolePermissionService,
             CurrentUserRoleService currentUserRoleService,
-            CustomerService customerService) {
+            CustomerService customerService,
+            PitTableCustomerAssignmentRepository pitTableAssignmentRepository,
+            SessionFinancialPositionService financialPositionService) {
 
         this.repository = repository;
         this.businessDateService = businessDateService;
@@ -41,6 +50,8 @@ public class CustomerSessionService {
         this.rolePermissionService = rolePermissionService;
         this.currentUserRoleService = currentUserRoleService;
         this.customerService = customerService;
+        this.pitTableAssignmentRepository = pitTableAssignmentRepository;
+        this.financialPositionService = financialPositionService;
     }
 
     public List<CustomerSession> getAllSessions() {
@@ -100,6 +111,7 @@ public class CustomerSessionService {
         return toReceptionResponse(saved);
     }
     
+    @Transactional
     public ReceptionSessionResponse closeSession(UUID sessionId) {
         validateSessionRole("Access denied. Only Receptionist or Super Admin can close sessions.");
 
@@ -111,7 +123,7 @@ public class CustomerSessionService {
             );
         }
 
-        CustomerSession session = repository.findById(sessionId)
+        CustomerSession session = repository.findByIdForUpdate(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Customer session not found."));
 
         if ("CLOSED".equalsIgnoreCase(session.getStatus())) {
@@ -120,6 +132,22 @@ public class CustomerSessionService {
 
         if (!"OPEN".equalsIgnoreCase(session.getStatus())) {
             throw new RuntimeException("Only an OPEN customer session can be closed.");
+        }
+
+        if (pitTableAssignmentRepository.findByCustomerSessionIdAndStatus(
+                sessionId, PitTableCustomerAssignmentStatus.ACTIVE).isPresent()) {
+            throw new ResourceConflictException(
+                    "Customer must leave and settle the active Pit Table assignment before the session can be closed.");
+        }
+
+        BigDecimal chipPosition = financialPositionService.getPosition(sessionId).calculatedChipPosition();
+        if (chipPosition.compareTo(BigDecimal.ZERO) > 0) {
+            throw new ResourceConflictException(
+                    "Customer session has outstanding chips that must be settled or cashed out before closure.");
+        }
+        if (chipPosition.compareTo(BigDecimal.ZERO) < 0) {
+            throw new ResourceConflictException(
+                    "Customer session has an inconsistent negative chip position that must be resolved before closure.");
         }
 
         session.setStatus("CLOSED");

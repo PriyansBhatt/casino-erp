@@ -1,11 +1,16 @@
 package com.casino.casinoerp;
 
 import com.casino.casinoerp.dto.ReceptionSessionResponse;
+import com.casino.casinoerp.dto.SessionFinancialPositionResponse;
 import com.casino.casinoerp.entity.Customer;
 import com.casino.casinoerp.entity.CustomerStatus;
 import com.casino.casinoerp.entity.CustomerSession;
+import com.casino.casinoerp.entity.PitTableCustomerAssignment;
+import com.casino.casinoerp.entity.PitTableCustomerAssignmentStatus;
 import com.casino.casinoerp.exception.ResourceNotFoundException;
+import com.casino.casinoerp.exception.ResourceConflictException;
 import com.casino.casinoerp.repository.CustomerSessionRepository;
+import com.casino.casinoerp.repository.PitTableCustomerAssignmentRepository;
 import com.casino.casinoerp.security.Role;
 import com.casino.casinoerp.service.AuditLogService;
 import com.casino.casinoerp.service.BusinessDateService;
@@ -13,12 +18,14 @@ import com.casino.casinoerp.service.CurrentUserRoleService;
 import com.casino.casinoerp.service.CustomerService;
 import com.casino.casinoerp.service.CustomerSessionService;
 import com.casino.casinoerp.service.RolePermissionService;
+import com.casino.casinoerp.service.SessionFinancialPositionService;
 import com.casino.casinoerp.service.SystemLockService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.time.LocalDate;
+import java.math.BigDecimal;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -39,6 +46,10 @@ class CustomerSessionServiceTests {
     private final RolePermissionService rolePermissionService = new RolePermissionService();
     private final CurrentUserRoleService currentUserRoleService = mock(CurrentUserRoleService.class);
     private final CustomerService customerService = mock(CustomerService.class);
+    private final PitTableCustomerAssignmentRepository pitTableAssignmentRepository =
+            mock(PitTableCustomerAssignmentRepository.class);
+    private final SessionFinancialPositionService financialPositionService =
+            mock(SessionFinancialPositionService.class);
     private final CustomerSessionService service = new CustomerSessionService(
             repository,
             businessDateService,
@@ -46,7 +57,9 @@ class CustomerSessionServiceTests {
             auditLogService,
             rolePermissionService,
             currentUserRoleService,
-            customerService
+            customerService,
+            pitTableAssignmentRepository,
+            financialPositionService
     );
 
     private final UUID customerId = UUID.randomUUID();
@@ -139,11 +152,86 @@ class CustomerSessionServiceTests {
     void alreadyClosedSessionCannotCloseAgain() {
         CustomerSession closedSession = openSessionEntity(UUID.randomUUID());
         closedSession.setStatus("CLOSED");
-        when(repository.findById(closedSession.getId())).thenReturn(Optional.of(closedSession));
+        when(repository.findByIdForUpdate(closedSession.getId())).thenReturn(Optional.of(closedSession));
 
         assertThatThrownBy(() -> service.closeSession(closedSession.getId()))
                 .hasMessage("Customer session is already CLOSED.");
         verify(repository, never()).save(any());
+    }
+
+    @Test
+    void zeroPositionWithoutActivePitAssignmentAllowsClosure() {
+        CustomerSession session = openSessionEntity(UUID.randomUUID());
+        stubClosablePosition(session, BigDecimal.ZERO);
+
+        ReceptionSessionResponse response = service.closeSession(session.getId());
+
+        assertThat(response.status()).isEqualTo("CLOSED");
+        assertThat(session.getExitTime()).isNotNull();
+        assertThat(session.getClosedBy()).isEqualTo(operatorId);
+        verify(repository).save(session);
+    }
+
+    @Test
+    void positiveChipPositionPreventsClosure() {
+        CustomerSession session = openSessionEntity(UUID.randomUUID());
+        stubClosablePosition(session, new BigDecimal("5000"));
+
+        assertThatThrownBy(() -> service.closeSession(session.getId()))
+                .isInstanceOf(ResourceConflictException.class)
+                .hasMessageContaining("outstanding chips");
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void negativeChipPositionPreventsClosure() {
+        CustomerSession session = openSessionEntity(UUID.randomUUID());
+        stubClosablePosition(session, new BigDecimal("-500"));
+
+        assertThatThrownBy(() -> service.closeSession(session.getId()))
+                .isInstanceOf(ResourceConflictException.class)
+                .hasMessageContaining("negative chip position");
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void activePitAssignmentPreventsClosureBeforeFinancialCheck() {
+        CustomerSession session = openSessionEntity(UUID.randomUUID());
+        when(repository.findByIdForUpdate(session.getId())).thenReturn(Optional.of(session));
+        when(pitTableAssignmentRepository.findByCustomerSessionIdAndStatus(
+                session.getId(), PitTableCustomerAssignmentStatus.ACTIVE))
+                .thenReturn(Optional.of(new PitTableCustomerAssignment()));
+
+        assertThatThrownBy(() -> service.closeSession(session.getId()))
+                .isInstanceOf(ResourceConflictException.class)
+                .hasMessageContaining("active Pit Table assignment");
+        verify(financialPositionService, never()).getPosition(any());
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void closureSucceedsAfterTableAssignmentLeavesAndPositionIsSettled() {
+        CustomerSession session = openSessionEntity(UUID.randomUUID());
+        stubClosablePosition(session, BigDecimal.ZERO);
+
+        ReceptionSessionResponse response = service.closeSession(session.getId());
+
+        assertThat(response.status()).isEqualTo("CLOSED");
+        verify(pitTableAssignmentRepository).findByCustomerSessionIdAndStatus(
+                session.getId(), PitTableCustomerAssignmentStatus.ACTIVE);
+        verify(financialPositionService).getPosition(session.getId());
+        verify(repository).save(session);
+    }
+
+    private void stubClosablePosition(CustomerSession session, BigDecimal chipPosition) {
+        when(repository.findByIdForUpdate(session.getId())).thenReturn(Optional.of(session));
+        when(pitTableAssignmentRepository.findByCustomerSessionIdAndStatus(
+                session.getId(), PitTableCustomerAssignmentStatus.ACTIVE))
+                .thenReturn(Optional.empty());
+        when(financialPositionService.getPosition(session.getId())).thenReturn(
+                new SessionFinancialPositionResponse(customerId, session.getId(), businessDate,
+                        BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
+                        chipPosition));
     }
 
     private Customer activeCustomer() {

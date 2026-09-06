@@ -10,6 +10,7 @@ import com.casino.casinoerp.repository.CustomerSessionRepository;
 import com.casino.casinoerp.repository.VerifiedGamingResultRepository;
 import com.casino.casinoerp.repository.PitTableRepository;
 import com.casino.casinoerp.repository.PitTableCustomerAssignmentRepository;
+import com.casino.casinoerp.repository.UserRepository;
 import com.casino.casinoerp.exception.ResourceConflictException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,6 +35,7 @@ public class VerifiedGamingResultService {
     private final CustomerSessionRepository sessionRepository;
     private final PitTableRepository tableRepository;
     private final PitTableCustomerAssignmentRepository assignmentRepository;
+    private final UserRepository userRepository;
     private final BusinessDateService businessDateService;
     private final SystemLockService systemLockService;
     private final CurrentUserRoleService currentUserRoleService;
@@ -48,6 +50,7 @@ public class VerifiedGamingResultService {
             CustomerSessionRepository sessionRepository,
             PitTableRepository tableRepository,
             PitTableCustomerAssignmentRepository assignmentRepository,
+            UserRepository userRepository,
             BusinessDateService businessDateService,
             SystemLockService systemLockService,
             CurrentUserRoleService currentUserRoleService,
@@ -60,6 +63,7 @@ public class VerifiedGamingResultService {
         this.sessionRepository = sessionRepository;
         this.tableRepository = tableRepository;
         this.assignmentRepository = assignmentRepository;
+        this.userRepository = userRepository;
         this.businessDateService = businessDateService;
         this.systemLockService = systemLockService;
         this.currentUserRoleService = currentUserRoleService;
@@ -197,9 +201,11 @@ public class VerifiedGamingResultService {
     }
 
     private VerifiedGamingResultResponse toResponse(VerifiedGamingResult result, User actor) {
-        ActorReferenceResponse createdBy = actor == null
-                ? new ActorReferenceResponse(result.getCreatedBy(), null)
-                : new ActorReferenceResponse(actor.getId(), actor.getUsername());
+        User resolvedActor = actor == null
+                ? userRepository.findById(result.getCreatedBy()).orElse(null)
+                : actor;
+        ActorReferenceResponse createdBy = new ActorReferenceResponse(result.getCreatedBy(),
+                resolvedActor == null ? null : resolvedActor.getUsername());
         return new VerifiedGamingResultResponse(
                 result.getId(), result.getCustomerId(), result.getCustomerSessionId(),
                 result.getPitTableId(), result.getAssignmentId(),

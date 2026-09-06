@@ -27,6 +27,7 @@ class VerifiedGamingResultServiceTests {
     private final CustomerSessionRepository sessionRepository = mock(CustomerSessionRepository.class);
     private final PitTableRepository tableRepository = mock(PitTableRepository.class);
     private final PitTableCustomerAssignmentRepository assignmentRepository = mock(PitTableCustomerAssignmentRepository.class);
+    private final UserRepository userRepository = mock(UserRepository.class);
     private final BusinessDateService businessDateService = mock(BusinessDateService.class);
     private final SystemLockService systemLockService = mock(SystemLockService.class);
     private final CurrentUserRoleService currentUserRoleService = mock(CurrentUserRoleService.class);
@@ -34,7 +35,7 @@ class VerifiedGamingResultServiceTests {
     private final AuditLogService auditLogService = mock(AuditLogService.class);
     private final PitTableAccessService tableAccess = mock(PitTableAccessService.class);
     private final VerifiedGamingResultService service = new VerifiedGamingResultService(
-            repository, customerRepository, sessionRepository, tableRepository, assignmentRepository, businessDateService,
+            repository, customerRepository, sessionRepository, tableRepository, assignmentRepository, userRepository, businessDateService,
             systemLockService, currentUserRoleService, new RolePermissionService(),
             authenticatedUserService, auditLogService, tableAccess);
 
@@ -55,6 +56,7 @@ class VerifiedGamingResultServiceTests {
         when(repository.findByIdempotencyKey(anyString())).thenReturn(Optional.empty());
         when(businessDateService.getCurrentBusinessDate()).thenReturn(businessDate);
         when(authenticatedUserService.getRequiredUser()).thenReturn(actor());
+        when(userRepository.findById(actorId)).thenReturn(Optional.of(actor()));
         when(repository.save(any())).thenAnswer(invocation -> {
             VerifiedGamingResult result = invocation.getArgument(0);
             result.setId(UUID.randomUUID());
@@ -147,8 +149,21 @@ class VerifiedGamingResultServiceTests {
         VerifiedGamingResultResponse response = service.create(request(new BigDecimal("2500")));
 
         assertThat(response.id()).isEqualTo(existing.getId());
+        assertThat(response.createdBy().id()).isEqualTo(actorId);
+        assertThat(response.createdBy().username()).isEqualTo("pitboss");
         verify(repository, never()).save(any());
         verify(auditLogService, never()).log(any(), any(), any(), any(), any());
+    }
+
+    @Test void persistedResultMappingIncludesSafeCreatorReference() {
+        VerifiedGamingResult existing = existingResult();
+        when(repository.findByCustomerSessionIdOrderByCreatedAtAsc(sessionId))
+                .thenReturn(java.util.List.of(existing));
+
+        VerifiedGamingResultResponse response = service.getBySession(sessionId).getFirst();
+
+        assertThat(response.createdBy().id()).isEqualTo(actorId);
+        assertThat(response.createdBy().username()).isEqualTo("pitboss");
     }
 
     @Test void assignmentForAnotherTableIsRejected() {

@@ -218,6 +218,60 @@ class ChipCustodyServiceTests {
     }
 
     @Test
+    void emptyLeaveReplayTreatsExplicitSupportedZerosAsEquivalent() {
+        PitTableCustomerAssignment assignment = activeAssignment();
+
+        service.validateAssignmentLeaveReplay(assignment, Map.of(500, 0L, 1000, 0L),
+                "ASSIGNMENT_SETTLEMENT:leave-key");
+    }
+
+    @Test
+    void emptyLeaveReplayRejectsPreviouslyPersistedNonEmptySettlement() {
+        PitTableCustomerAssignment assignment = activeAssignment();
+        when(movements.findByIdempotencyKey("ASSIGNMENT_SETTLEMENT:leave-key"))
+                .thenReturn(Optional.of(leaveMovement(assignment, Map.of(5000, 1L), "5000")));
+
+        assertThatThrownBy(() -> service.validateAssignmentLeaveReplay(
+                assignment, Map.of(), "ASSIGNMENT_SETTLEMENT:leave-key"))
+                .isInstanceOf(ResourceConflictException.class)
+                .hasMessage("Idempotency key was already used with a different request.");
+    }
+
+    @Test
+    void nonEmptyLeaveReplayAcceptsExactCanonicalSettlement() {
+        PitTableCustomerAssignment assignment = activeAssignment();
+        when(movements.findByIdempotencyKey("ASSIGNMENT_SETTLEMENT:leave-key"))
+                .thenReturn(Optional.of(leaveMovement(assignment, Map.of(5000, 1L), "5000")));
+
+        service.validateAssignmentLeaveReplay(assignment, Map.of(5000, 1L, 1000, 0L),
+                "ASSIGNMENT_SETTLEMENT:leave-key");
+    }
+
+    @Test
+    void nonEmptyLeaveReplayRejectsChangedQuantity() {
+        PitTableCustomerAssignment assignment = activeAssignment();
+        when(movements.findByIdempotencyKey("ASSIGNMENT_SETTLEMENT:leave-key"))
+                .thenReturn(Optional.of(leaveMovement(assignment, Map.of(5000, 1L), "5000")));
+
+        assertThatThrownBy(() -> service.validateAssignmentLeaveReplay(
+                assignment, Map.of(5000, 2L), "ASSIGNMENT_SETTLEMENT:leave-key"))
+                .isInstanceOf(ResourceConflictException.class)
+                .hasMessage("Idempotency key was already used with a different request.");
+    }
+
+    @Test
+    void nonEmptyLeaveReplayRejectsChangedDenominationSet() {
+        PitTableCustomerAssignment assignment = activeAssignment();
+        when(movements.findByIdempotencyKey("ASSIGNMENT_SETTLEMENT:leave-key"))
+                .thenReturn(Optional.of(leaveMovement(assignment, Map.of(5000, 1L), "5000")));
+
+        assertThatThrownBy(() -> service.validateAssignmentLeaveReplay(
+                assignment, Map.of(5000, 1L, 1000, 1L), "ASSIGNMENT_SETTLEMENT:leave-key"))
+                .isInstanceOf(ResourceConflictException.class)
+                .hasMessage("Idempotency key was already used with a different request.");
+    }
+
+    @Test
     void validatesDenominationsTotalsOverflowAndIdempotency() {
         seedCage(500, 10);
         assertThatThrownBy(() -> service.recordBuyIn(UUID.randomUUID(), sessionId, businessDate,
@@ -391,5 +445,15 @@ class ChipCustodyServiceTests {
         value.setMovementType(type); value.setSourceReferenceId(source); value.setDestinationReferenceId(destination);
         value.setDenominations(new LinkedHashMap<>(denominations)); value.setTotalValue(new BigDecimal(total));
         value.setRelatedTransactionId(UUID.randomUUID()); return value;
+    }
+    private ChipCustodyMovement leaveMovement(PitTableCustomerAssignment assignment,
+            Map<Integer, Long> denominations, String total) {
+        ChipCustodyMovement value = movement(ChipCustodyMovementType.TABLE_TO_CUSTOMER,
+                assignment.getPitTableId(), assignment.getCustomerSessionId(), denominations, total);
+        value.setRelatedTransactionType("PIT_TABLE_ASSIGNMENT");
+        value.setRelatedTransactionId(assignment.getId());
+        value.setCustomerSessionId(assignment.getCustomerSessionId());
+        value.setPitTableId(assignment.getPitTableId());
+        return value;
     }
 }

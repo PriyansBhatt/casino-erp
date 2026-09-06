@@ -63,8 +63,16 @@ public class LosingReturnService {
         if (systemLock.isSystemLocked()) throw new RuntimeException("System is locked. Losing Return transactions are not allowed.");
         User actor = authenticatedUsers.getRequiredUser();
         reconciliations.validatePostingAllowed(actor.getId(), date);
-        CustomerSession session = activeSession(request.customerId(), date);
-        if (!session.getId().equals(request.customerSessionId())) throw new IllegalArgumentException("Active customer session does not match the request.");
+        CustomerSession session = lockedActiveSession(
+                request.customerId(), request.customerSessionId(), date);
+        replay = repository.findByIdempotencyKey(key).orElse(null);
+        if (replay != null) {
+            if (!replay.getCustomerId().equals(request.customerId())
+                    || !replay.getCustomerSessionId().equals(request.customerSessionId()))
+                throw new ResourceConflictException(
+                        "Idempotency key has already been used for a different Losing Return.");
+            return response(replay);
+        }
         LosingReturnEligibilityResponse eligible = calculate(request.customerId(), session.getId(), date);
         if (!eligible.eligible() || eligible.availableReturnAmount().signum() <= 0)
             throw new ResourceConflictException("Customer has no eligible verified net loss for a Losing Return.");
@@ -105,6 +113,15 @@ public class LosingReturnService {
         Customer customer=customers.findById(customerId).orElseThrow(()->new ResourceNotFoundException("Customer not found."));
         if (customer.getStatus()!=CustomerStatus.ACTIVE) throw new IllegalArgumentException("Customer must be ACTIVE.");
         CustomerSession session=sessions.findFirstByCustomerIdAndStatusIgnoreCase(customerId,"OPEN").orElseThrow(()->new ResourceNotFoundException("Active customer session not found."));
+        if (!date.equals(session.getBusinessDate())) throw new IllegalArgumentException("Customer session does not belong to the current OPEN Business Date.");
+        return session;
+    }
+    private CustomerSession lockedActiveSession(UUID customerId, UUID sessionId, LocalDate date) {
+        Customer customer=customers.findById(customerId).orElseThrow(()->new ResourceNotFoundException("Customer not found."));
+        if (customer.getStatus()!=CustomerStatus.ACTIVE) throw new IllegalArgumentException("Customer must be ACTIVE.");
+        CustomerSession session=sessions.findByIdForUpdate(sessionId).orElseThrow(()->new ResourceNotFoundException("Active customer session not found."));
+        if (!customerId.equals(session.getCustomerId())) throw new IllegalArgumentException("Customer session does not belong to the supplied customer.");
+        if (!"OPEN".equalsIgnoreCase(session.getStatus())) throw new IllegalArgumentException("Customer session must be OPEN.");
         if (!date.equals(session.getBusinessDate())) throw new IllegalArgumentException("Customer session does not belong to the current OPEN Business Date.");
         return session;
     }

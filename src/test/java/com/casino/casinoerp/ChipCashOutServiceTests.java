@@ -48,7 +48,7 @@ class ChipCashOutServiceTests {
     @BeforeEach void setUp() {
         when(roleService.getCurrentUserRole()).thenReturn(Role.CASHIER.name());
         when(customerRepository.findById(customerId)).thenReturn(Optional.of(customer(CustomerStatus.ACTIVE)));
-        when(sessionRepository.findById(sessionId)).thenReturn(Optional.of(session("OPEN", customerId, businessDate)));
+        when(sessionRepository.findByIdForUpdate(sessionId)).thenReturn(Optional.of(session("OPEN", customerId, businessDate)));
         when(businessDateService.getCurrentBusinessDate()).thenReturn(businessDate);
         when(positionService.getPosition(sessionId)).thenReturn(position("1000"));
         when(userService.getRequiredUser()).thenReturn(actor());
@@ -109,7 +109,7 @@ class ChipCashOutServiceTests {
         assertThatThrownBy(() -> service.create(request("1", "1", PaymentMode.CASH, null, "second")))
                 .hasMessage("Cash-Out exceeds the authoritative session chip position.");
 
-        verify(sessionRepository, times(2)).findById(sessionId);
+        verify(sessionRepository, times(2)).findByIdForUpdate(sessionId);
         verify(repository, times(1)).save(any());
         verify(walletService, times(1)).save(any());
     }
@@ -123,7 +123,7 @@ class ChipCashOutServiceTests {
         assertThat(service.create(request("100", "100", PaymentMode.CASH, null, "concurrent-key")).id())
                 .isEqualTo(existing.getId());
 
-        verify(sessionRepository).findById(sessionId);
+        verify(sessionRepository).findByIdForUpdate(sessionId);
         verify(repository, never()).save(any());
         verify(walletService, never()).save(any());
     }
@@ -154,16 +154,16 @@ class ChipCashOutServiceTests {
     }
 
     @Test void invalidSessionVariantsAreRejected() {
-        when(sessionRepository.findById(sessionId)).thenReturn(Optional.empty());
+        when(sessionRepository.findByIdForUpdate(sessionId)).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.create(request("100", "100", PaymentMode.CASH, null, "s1")))
                 .isInstanceOf(ResourceNotFoundException.class);
-        when(sessionRepository.findById(sessionId)).thenReturn(Optional.of(session("CLOSED", customerId, businessDate)));
+        when(sessionRepository.findByIdForUpdate(sessionId)).thenReturn(Optional.of(session("CLOSED", customerId, businessDate)));
         assertThatThrownBy(() -> service.create(request("100", "100", PaymentMode.CASH, null, "s2")))
                 .hasMessage("Customer session must be OPEN.");
-        when(sessionRepository.findById(sessionId)).thenReturn(Optional.of(session("OPEN", UUID.randomUUID(), businessDate)));
+        when(sessionRepository.findByIdForUpdate(sessionId)).thenReturn(Optional.of(session("OPEN", UUID.randomUUID(), businessDate)));
         assertThatThrownBy(() -> service.create(request("100", "100", PaymentMode.CASH, null, "s3")))
                 .hasMessage("Customer session does not belong to the supplied customer.");
-        when(sessionRepository.findById(sessionId)).thenReturn(Optional.of(session("OPEN", customerId, businessDate.minusDays(1))));
+        when(sessionRepository.findByIdForUpdate(sessionId)).thenReturn(Optional.of(session("OPEN", customerId, businessDate.minusDays(1))));
         assertThatThrownBy(() -> service.create(request("100", "100", PaymentMode.CASH, null, "s4")))
                 .hasMessage("Customer session does not belong to the current OPEN Business Date.");
     }

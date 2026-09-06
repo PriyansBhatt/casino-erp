@@ -107,6 +107,8 @@ public class PitTableCustomerAssignmentService {
         String settlementKey = request.idempotencyKey().trim();
         if (assignment.getStatus() == PitTableCustomerAssignmentStatus.LEFT
                 && settlementKey.equals(assignment.getCustodySettlementKey())) {
+            chipCustodyService.validateAssignmentLeaveReplay(assignment, request.denominations(),
+                    "ASSIGNMENT_SETTLEMENT:" + settlementKey);
             return toResponse(assignment,
                     customerRepository.findById(assignment.getCustomerId()).orElseThrow(),
                     sessionRepository.findById(assignment.getCustomerSessionId()).orElseThrow());

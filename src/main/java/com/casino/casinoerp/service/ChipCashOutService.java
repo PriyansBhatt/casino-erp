@@ -100,7 +100,7 @@ public class ChipCashOutService {
             throw new IllegalArgumentException("Customer must be ACTIVE to create a cash-out.");
         }
 
-        CustomerSession session = sessionRepository.findById(request.customerSessionId())
+        CustomerSession session = sessionRepository.findByIdForUpdate(request.customerSessionId())
                 .orElseThrow(() -> new ResourceNotFoundException("Customer session not found."));
         existing = repository.findByIdempotencyKey(idempotencyKey).orElse(null);
         if (existing != null) {

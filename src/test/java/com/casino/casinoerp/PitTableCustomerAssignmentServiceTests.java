@@ -150,6 +150,88 @@ class PitTableCustomerAssignmentServiceTests {
         verify(repository, never()).save(active);
     }
 
+    @Test void exactEmptyLeaveReplayValidatesCanonicalPayloadWithoutMutation() {
+        PitTableCustomerAssignment left = leftAssignment("leave-key");
+        stubExistingAssignment(left);
+
+        var response = service.leave(tableId, left.getId(),
+                new LeavePitTableCustomerRequest(Map.of(500, 0L), "leave-key"));
+
+        assertThat(response.status()).isEqualTo(PitTableCustomerAssignmentStatus.LEFT);
+        verify(custodyService).validateAssignmentLeaveReplay(left, Map.of(500, 0L),
+                "ASSIGNMENT_SETTLEMENT:leave-key");
+        verify(custodyService, never()).settleAssignmentForLeave(any(), any(), any(), any());
+        verify(repository, never()).save(any());
+        verify(auditService, never()).log(any(), any(), any(), any(), any());
+    }
+
+    @Test void exactNonEmptyLeaveReplayReturnsOriginalWithoutMutation() {
+        PitTableCustomerAssignment left = leftAssignment("leave-key");
+        stubExistingAssignment(left);
+
+        service.leave(tableId, left.getId(),
+                new LeavePitTableCustomerRequest(Map.of(5000, 1L), "leave-key"));
+
+        verify(custodyService).validateAssignmentLeaveReplay(left, Map.of(5000, 1L),
+                "ASSIGNMENT_SETTLEMENT:leave-key");
+        verify(custodyService, never()).settleAssignmentForLeave(any(), any(), any(), any());
+        verify(auditService, never()).log(any(), any(), any(), any(), any());
+    }
+
+    @Test void mismatchedLeaveReplayDoesNotMutateOrAudit() {
+        PitTableCustomerAssignment left = leftAssignment("leave-key");
+        stubExistingAssignment(left);
+        doThrow(new ResourceConflictException("Idempotency key was already used with a different request."))
+                .when(custodyService).validateAssignmentLeaveReplay(left, Map.of(500, 1L),
+                        "ASSIGNMENT_SETTLEMENT:leave-key");
+
+        assertThatThrownBy(() -> service.leave(tableId, left.getId(),
+                new LeavePitTableCustomerRequest(Map.of(500, 1L), "leave-key")))
+                .isInstanceOf(ResourceConflictException.class)
+                .hasMessage("Idempotency key was already used with a different request.");
+        verify(custodyService, never()).settleAssignmentForLeave(any(), any(), any(), any());
+        verify(repository, never()).save(any());
+        verify(auditService, never()).log(any(), any(), any(), any(), any());
+    }
+
+    @Test void newKeyCannotSettleAlreadyLeftAssignmentAgain() {
+        PitTableCustomerAssignment left = leftAssignment("original-key");
+        stubExistingAssignment(left);
+
+        assertThatThrownBy(() -> service.leave(tableId, left.getId(),
+                new LeavePitTableCustomerRequest(Map.of(), "new-key")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Pit table customer assignment is not active.");
+        verifyNoInteractions(custodyService);
+        verify(repository, never()).save(any());
+        verify(auditService, never()).log(any(), any(), any(), any(), any());
+    }
+
+    @Test void leaveReplayCannotBypassAssignedTableAuthorization() {
+        PitTableCustomerAssignment left = leftAssignment("leave-key");
+        stubExistingAssignment(left);
+        doThrow(new org.springframework.security.access.AccessDeniedException("not assigned"))
+                .when(tableAccess).requireOperationalAccess(tableId);
+
+        assertThatThrownBy(() -> service.leave(tableId, left.getId(),
+                new LeavePitTableCustomerRequest(Map.of(), "leave-key")))
+                .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
+        verifyNoInteractions(custodyService);
+        verify(auditService, never()).log(any(), any(), any(), any(), any());
+    }
+
+    @Test void leaveReplayStillHonorsSystemLock() {
+        PitTableCustomerAssignment left = leftAssignment("leave-key");
+        stubExistingAssignment(left);
+        when(systemLockService.isSystemLocked()).thenReturn(true);
+
+        assertThatThrownBy(() -> service.leave(tableId, left.getId(),
+                new LeavePitTableCustomerRequest(Map.of(), "leave-key")))
+                .hasMessageContaining("System is locked");
+        verifyNoInteractions(custodyService);
+        verify(auditService, never()).log(any(), any(), any(), any(), any());
+    }
+
     private Customer customer(CustomerStatus status) {
         Customer value = new Customer(); value.setId(customerId); value.setCustomerCode("CUS-1001");
         value.setFullName("Test Customer"); value.setStatus(status); return value;
@@ -169,5 +251,18 @@ class PitTableCustomerAssignmentServiceTests {
         value.setPitTableId(tableId); value.setCustomerId(customerId); value.setCustomerSessionId(sessionId);
         value.setBusinessDate(businessDate); value.setStatus(status); value.setJoinedAt(java.time.LocalDateTime.now());
         value.setJoinedBy(actorId); return value;
+    }
+    private PitTableCustomerAssignment leftAssignment(String key) {
+        PitTableCustomerAssignment value = assignment(PitTableCustomerAssignmentStatus.LEFT);
+        value.setCustodySettlementKey(key);
+        value.setLeftAt(java.time.LocalDateTime.now());
+        value.setLeftBy(actorId);
+        return value;
+    }
+    private void stubExistingAssignment(PitTableCustomerAssignment value) {
+        when(repository.findById(value.getId())).thenReturn(Optional.of(value));
+        when(repository.findByIdForUpdate(value.getId())).thenReturn(Optional.of(value));
+        when(customerRepository.findById(customerId)).thenReturn(Optional.of(customer(CustomerStatus.ACTIVE)));
+        when(sessionRepository.findById(sessionId)).thenReturn(Optional.of(session("OPEN", customerId, businessDate)));
     }
 }

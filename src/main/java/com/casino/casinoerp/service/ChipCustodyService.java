@@ -266,6 +266,36 @@ public class ChipCustodyService {
     }
 
     @Transactional(readOnly = true)
+    public void validateAssignmentLeaveReplay(PitTableCustomerAssignment assignment,
+            Map<Integer, Long> returnedDenominations, String idempotencyKey) {
+        Map<Integer, Long> normalized = normalizeOptional(returnedDenominations);
+        ChipCustodyMovement movement = movements.findByIdempotencyKey(idempotencyKey).orElse(null);
+        if (normalized.isEmpty()) {
+            if (movement != null) {
+                throw new ResourceConflictException(
+                        "Idempotency key was already used with a different request.");
+            }
+            return;
+        }
+        if (movement == null
+                || !"PIT_TABLE_ASSIGNMENT".equals(movement.getRelatedTransactionType())
+                || !assignment.getId().equals(movement.getRelatedTransactionId())
+                || !assignment.getCustomerSessionId().equals(movement.getCustomerSessionId())
+                || !assignment.getPitTableId().equals(movement.getPitTableId())) {
+            throw new ResourceConflictException(
+                    "Idempotency key was already used with a different request.");
+        }
+        try {
+            validateReplay(movement, ChipCustodyMovementType.TABLE_TO_CUSTOMER,
+                    assignment.getPitTableId(), assignment.getCustomerSessionId(),
+                    normalized, total(normalized));
+        } catch (ResourceConflictException exception) {
+            throw new ResourceConflictException(
+                    "Idempotency key was already used with a different request.");
+        }
+    }
+
+    @Transactional(readOnly = true)
     public ChipCustodyInventoryResponse cageInventory() {
         validateCustodyReadRole();
         if (tableAccess.isDealer()) {
