@@ -1,6 +1,7 @@
 package com.casino.casinoerp.controller;
 
 import com.casino.casinoerp.repository.*;
+import com.casino.casinoerp.service.PitTableReconciliationService;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
@@ -19,6 +20,7 @@ public class DashboardController {
     private final CustomerWalletRepository walletRepository;
     private final PitTableRepository pitTableRepository;
     private final PitTableTransactionRepository pitTableTransactionRepository;
+    private final PitTableReconciliationService pitTableReconciliationService;
 
     public DashboardController(
             CustomerRepository customerRepository,
@@ -26,7 +28,9 @@ public class DashboardController {
             ChipCashOutRepository cashOutRepository,
             CustomerSessionRepository sessionRepository,
             CustomerCheckInRepository checkInRepository,
-            CustomerWalletRepository walletRepository, PitTableRepository pitTableRepository, PitTableTransactionRepository pitTableTransactionRepository) {
+            CustomerWalletRepository walletRepository, PitTableRepository pitTableRepository,
+            PitTableTransactionRepository pitTableTransactionRepository,
+            PitTableReconciliationService pitTableReconciliationService) {
 
         this.customerRepository = customerRepository;
         this.buyInRepository = buyInRepository;
@@ -36,6 +40,7 @@ public class DashboardController {
         this.walletRepository = walletRepository;
         this.pitTableRepository = pitTableRepository;
         this.pitTableTransactionRepository = pitTableTransactionRepository;
+        this.pitTableReconciliationService = pitTableReconciliationService;
     }
 
     @GetMapping("/active-sessions")
@@ -124,30 +129,7 @@ public class DashboardController {
     public Object getTableResults() {
         return pitTableRepository.findAll().stream()
                 .filter(t -> "CLOSED".equalsIgnoreCase(t.getStatus()))
-                .map(t -> {
-                    BigDecimal openingFloat = t.getOpeningFloat();
-                    BigDecimal closingFloat = t.getClosingFloat();
-                    BigDecimal tableDifference = openingFloat.subtract(closingFloat);
-
-                    String tableStatus;
-                    if (tableDifference.compareTo(BigDecimal.ZERO) > 0) {
-                        tableStatus = "TABLE_PROFIT";
-                    } else if (tableDifference.compareTo(BigDecimal.ZERO) < 0) {
-                        tableStatus = "TABLE_LOSS";
-                    } else {
-                        tableStatus = "BALANCED";
-                    }
-
-                    Map<String, Object> result = new LinkedHashMap<>();
-                    result.put("tableId", t.getId());
-                    result.put("tableCode", t.getTableCode());
-                    result.put("openingFloat", openingFloat);
-                    result.put("closingFloat", closingFloat);
-                    result.put("tableDifference", tableDifference);
-                    result.put("tableStatus", tableStatus);
-
-                    return result;
-                })
+                .map(pitTableReconciliationService::reconcile)
                 .toList();
     }
 
