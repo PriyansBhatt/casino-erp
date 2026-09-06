@@ -30,6 +30,9 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/login", "/api/health").permitAll()
 
+                        .requestMatchers(HttpMethod.GET, "/api/business-status/current")
+                        .authenticated()
+
                         .requestMatchers(HttpMethod.GET,
                                 "/api/pit-tables/*/mode", "/api/pit-tables/*/eligible-players")
                         .hasAnyRole(Role.DEALER.name(), Role.PIT_SUPERVISOR.name(), Role.SUPER_ADMIN.name())
