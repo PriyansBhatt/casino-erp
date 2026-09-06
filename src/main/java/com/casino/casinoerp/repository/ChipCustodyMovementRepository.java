@@ -15,4 +15,5 @@ public interface ChipCustodyMovementRepository extends JpaRepository<ChipCustody
     boolean existsByMovementTypeAndPitTableId(ChipCustodyMovementType movementType, UUID pitTableId);
     Optional<ChipCustodyMovement> findFirstByOrderByCreatedAtAsc();
     List<ChipCustodyMovement> findByBusinessDateOrderByCreatedAtDesc(LocalDate businessDate);
+    List<ChipCustodyMovement> findByPitTableIdOrderByCreatedAtAsc(UUID pitTableId);
 }

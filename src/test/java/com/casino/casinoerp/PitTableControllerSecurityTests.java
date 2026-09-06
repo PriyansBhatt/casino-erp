@@ -8,6 +8,7 @@ import com.casino.casinoerp.service.JwtService;
 import com.casino.casinoerp.service.PitTableService;
 import com.casino.casinoerp.service.PitTableReconciliationService;
 import com.casino.casinoerp.service.LegacyPitTableReconciliationService;
+import com.casino.casinoerp.service.PitTableOperationService;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,35 +32,59 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import({SecurityConfig.class, JwtAuthenticationFilter.class})
 class PitTableControllerSecurityTests {
     private static final UUID TABLE_ID = UUID.fromString("00000000-0000-0000-0000-000000000010");
-    private static final String CREATE_REQUEST = """
-            {"tableCode":"T-BAC-10","tableName":"Baccarat Table 10",
-             "gameType":"Baccarat","openingFloat":100000}
+    private static final String OPEN_REQUEST = """
+            {"denominations":{"5000":20},"remarks":"Opening float",
+             "idempotencyKey":"open-table-test-1"}
             """;
     @Autowired MockMvc mockMvc;
     @MockitoBean PitTableService service;
     @MockitoBean PitTableReconciliationService reconciliationService;
     @MockitoBean LegacyPitTableReconciliationService legacyReconciliationService;
+    @MockitoBean PitTableOperationService operationService;
     @MockitoBean JwtService jwtService;
 
     @ParameterizedTest
     @ValueSource(strings = {"PIT_SUPERVISOR", "DEALER", "SUPER_ADMIN"})
-    void pitRolesCanListAndCreateRealTables(String role) throws Exception {
+    void pitRolesCanListPhysicalTables(String role) throws Exception {
         PitTable table = table();
-        when(service.getAllTables()).thenReturn(List.of(table));
-        when(service.createAndOpen(org.mockito.ArgumentMatchers.any())).thenReturn(table);
+        when(operationService.overview()).thenReturn(List.of(new com.casino.casinoerp.dto.PitTableOverviewResponse(
+                TABLE_ID, table.getTableCode(), table.getTableName(), table.getGameType(), null,
+                "ACTIVE", TABLE_ID, java.time.LocalDate.of(2026, 9, 2), "OPEN",
+                table.getOpeningFloat(), 0, java.math.BigDecimal.ZERO, java.math.BigDecimal.ZERO,
+                java.math.BigDecimal.ZERO, java.math.BigDecimal.ZERO)));
         var actor = user(role.toLowerCase()).roles(role);
         mockMvc.perform(get("/api/pit-tables").with(actor))
-                .andExpect(status().isOk()).andExpect(jsonPath("$[0].id").value(TABLE_ID.toString()));
-        mockMvc.perform(post("/api/pit-tables").with(actor).contentType("application/json").content(CREATE_REQUEST))
-                .andExpect(status().isCreated()).andExpect(jsonPath("$.id").value(TABLE_ID.toString()));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].physicalTableId").value(TABLE_ID.toString()));
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"DIRECTOR", "CASHIER", "RECEPTIONIST"})
-    void unrelatedRolesCannotListOrCreateTables(String role) throws Exception {
+    void unrelatedRolesCannotListPhysicalTables(String role) throws Exception {
         var actor = user(role.toLowerCase()).roles(role);
         mockMvc.perform(get("/api/pit-tables").with(actor)).andExpect(status().isForbidden());
-        mockMvc.perform(post("/api/pit-tables").with(actor).contentType("application/json").content(CREATE_REQUEST))
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"PIT_SUPERVISOR", "SUPER_ADMIN"})
+    void authorizedRolesCanOpenPhysicalTableOperation(String role) throws Exception {
+        when(operationService.open(org.mockito.ArgumentMatchers.eq(TABLE_ID),
+                org.mockito.ArgumentMatchers.any())).thenReturn(new com.casino.casinoerp.dto.PitTableResponse(
+                        TABLE_ID, "T-BAC-10", "Baccarat Table 10", "Baccarat", "OPEN",
+                        java.time.LocalDate.of(2026, 9, 2), java.time.LocalDateTime.now(), null,
+                        new java.math.BigDecimal("100000"), null, "Opening float"));
+        mockMvc.perform(post("/api/pit-tables/physical/{physicalTableId}/open", TABLE_ID)
+                        .with(user(role.toLowerCase()).roles(role))
+                        .contentType("application/json").content(OPEN_REQUEST))
+                .andExpect(status().isCreated());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"DEALER", "DIRECTOR", "CASHIER", "RECEPTIONIST"})
+    void unauthorizedRolesCannotOpenPhysicalTableOperation(String role) throws Exception {
+        mockMvc.perform(post("/api/pit-tables/physical/{physicalTableId}/open", TABLE_ID)
+                        .with(user(role.toLowerCase()).roles(role))
+                        .contentType("application/json").content(OPEN_REQUEST))
                 .andExpect(status().isForbidden());
     }
 

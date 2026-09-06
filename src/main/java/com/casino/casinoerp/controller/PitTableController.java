@@ -2,12 +2,12 @@ package com.casino.casinoerp.controller;
 
 import com.casino.casinoerp.entity.PitTable;
 import com.casino.casinoerp.service.PitTableService;
-import com.casino.casinoerp.dto.CreatePitTableRequest;
 import com.casino.casinoerp.dto.LegacyPitTableReconciliationRequest;
 import com.casino.casinoerp.dto.PitTableResponse;
 import com.casino.casinoerp.dto.PitTableReconciliationResponse;
 import com.casino.casinoerp.service.LegacyPitTableReconciliationService;
 import com.casino.casinoerp.service.PitTableReconciliationService;
+import com.casino.casinoerp.service.PitTableOperationService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
@@ -24,14 +24,17 @@ public class PitTableController {
     private final PitTableService service;
     private final PitTableReconciliationService reconciliationService;
     private final LegacyPitTableReconciliationService legacyReconciliationService;
+    private final PitTableOperationService operationService;
 
     public PitTableController(
             PitTableService service,
             PitTableReconciliationService reconciliationService,
-            LegacyPitTableReconciliationService legacyReconciliationService) {
+            LegacyPitTableReconciliationService legacyReconciliationService,
+            PitTableOperationService operationService) {
         this.service = service;
         this.reconciliationService = reconciliationService;
         this.legacyReconciliationService = legacyReconciliationService;
+        this.operationService = operationService;
     }
 
     @GetMapping("/open")
@@ -44,10 +47,17 @@ public class PitTableController {
         return toResponse(service.getTableById(tableId));
     }
 
-    @PostMapping
+    @PostMapping("/physical/{physicalTableId}/open")
     @ResponseStatus(HttpStatus.CREATED)
-    public PitTableResponse createAndOpen(@Valid @RequestBody CreatePitTableRequest request) {
-        return toResponse(service.createAndOpen(request));
+    public PitTableResponse openPhysicalTable(
+            @PathVariable UUID physicalTableId,
+            @Valid @RequestBody com.casino.casinoerp.dto.OpenPitTableOperationRequest request) {
+        return operationService.open(physicalTableId, request);
+    }
+
+    @GetMapping("/physical/{physicalTableId}/history")
+    public List<PitTableResponse> history(@PathVariable UUID physicalTableId) {
+        return operationService.history(physicalTableId);
     }
 
     @PutMapping("/{tableId}/close")
@@ -71,8 +81,8 @@ public class PitTableController {
     }
     
     @GetMapping
-    public List<PitTableResponse> getAllTables() {
-        return service.getAllTables().stream().map(this::toResponse).toList();
+    public List<com.casino.casinoerp.dto.PitTableOverviewResponse> getAllTables() {
+        return operationService.overview();
     }
 
     private PitTableResponse toResponse(PitTable table) {

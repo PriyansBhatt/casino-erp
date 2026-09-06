@@ -198,6 +198,21 @@ public class ChipCustodyService {
                 table.getOpeningFloat() == null ? BigDecimal.ZERO : table.getOpeningFloat(), date));
     }
 
+    public BigDecimal calculateDenominationTotal(Map<Integer, Long> denominations) {
+        return total(normalize(denominations));
+    }
+
+    public void validateTableFloatIssueReplay(
+            UUID tableId, ChipCustodyTransferRequest request) {
+        Map<Integer, Long> denominations = normalize(request.denominations());
+        BigDecimal requestedTotal = total(denominations);
+        ChipCustodyMovement replay = movements.findByIdempotencyKey(request.idempotencyKey().trim())
+                .orElseThrow(() -> new ResourceConflictException(
+                        "Table opening idempotency record is incomplete."));
+        validateReplay(replay, ChipCustodyMovementType.TABLE_FLOAT_ISSUE,
+                null, tableId, denominations, requestedTotal);
+    }
+
     @Transactional
     public ChipCustodyMovementResponse returnTableFloat(UUID tableId, ChipCustodyTransferRequest request) {
         validatePitCustodyRole();

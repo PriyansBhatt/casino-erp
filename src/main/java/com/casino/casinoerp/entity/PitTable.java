@@ -17,6 +17,9 @@ public class PitTable {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    @Column(name = "physical_table_id", nullable = false, updatable = false)
+    private UUID physicalTableId;
+
     @Column(name = "table_code")
     private String tableCode;
 
@@ -53,4 +56,7 @@ public class PitTable {
     private BigDecimal closingFloat;
 
     private String remarks;
+
+    @Column(name = "opening_idempotency_key", updatable = false)
+    private String openingIdempotencyKey;
 }

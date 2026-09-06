@@ -150,12 +150,9 @@ public class SecurityConfig {
                                 "/api/pit-tables/*/legacy-reconciliation-resolution")
                         .hasRole(Role.SUPER_ADMIN.name())
 
-                        .requestMatchers(HttpMethod.POST, "/api/pit-tables")
-                        .hasAnyRole(
-                                Role.PIT_SUPERVISOR.name(),
-                                Role.DEALER.name(),
-                                Role.SUPER_ADMIN.name()
-                        )
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/pit-tables/physical/*/open")
+                        .hasAnyRole(Role.PIT_SUPERVISOR.name(), Role.SUPER_ADMIN.name())
 
                         .requestMatchers(HttpMethod.PUT, "/api/pit-tables/*/close")
                         .hasAnyRole(

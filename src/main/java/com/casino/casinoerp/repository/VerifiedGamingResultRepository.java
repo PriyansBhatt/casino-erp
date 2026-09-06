@@ -13,4 +13,5 @@ public interface VerifiedGamingResultRepository extends JpaRepository<VerifiedGa
     Optional<VerifiedGamingResult> findByIdempotencyKey(String idempotencyKey);
     List<VerifiedGamingResult> findByCustomerIdAndBusinessDateOrderByCreatedAtAsc(UUID customerId, LocalDate businessDate);
     List<VerifiedGamingResult> findByBusinessDate(LocalDate businessDate);
+    List<VerifiedGamingResult> findByPitTableId(UUID pitTableId);
 }

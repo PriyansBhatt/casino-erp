@@ -23,4 +23,8 @@ public interface PitTableRepository extends JpaRepository<PitTable, UUID> {
     List<PitTable> findByStatusIgnoreCase(String status);
     List<PitTable> findByStatusIgnoreCaseAndBusinessDate(String status, LocalDate businessDate);
     Optional<PitTable> findByTableCodeIgnoreCase(String tableCode);
+    Optional<PitTable> findByPhysicalTableIdAndBusinessDate(UUID physicalTableId, LocalDate businessDate);
+    Optional<PitTable> findFirstByPhysicalTableIdAndStatusIgnoreCase(UUID physicalTableId, String status);
+    Optional<PitTable> findByOpeningIdempotencyKey(String openingIdempotencyKey);
+    List<PitTable> findByPhysicalTableIdOrderByBusinessDateDesc(UUID physicalTableId);
 }
