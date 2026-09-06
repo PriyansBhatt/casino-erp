@@ -146,6 +146,10 @@ public class SecurityConfig {
                                 Role.SUPER_ADMIN.name()
                         )
 
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/pit-tables/*/legacy-reconciliation-resolution")
+                        .hasRole(Role.SUPER_ADMIN.name())
+
                         .requestMatchers(HttpMethod.POST, "/api/pit-tables")
                         .hasAnyRole(
                                 Role.PIT_SUPERVISOR.name(),
@@ -187,6 +191,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/chip-custody/cage/opening")
                         .hasRole(Role.SUPER_ADMIN.name())
 
+                        .requestMatchers(HttpMethod.POST, "/api/chip-custody/legacy-session-correction")
+                        .hasRole(Role.SUPER_ADMIN.name())
+
                         .requestMatchers(HttpMethod.POST, "/api/chip-custody/tables/*/float-issue",
                                 "/api/chip-custody/tables/*/float-return")
                         .hasAnyRole(Role.PIT_SUPERVISOR.name(), Role.SUPER_ADMIN.name())
@@ -215,6 +222,14 @@ public class SecurityConfig {
 
                         .requestMatchers(HttpMethod.GET, "/api/cashier-reconciliation/current/submitted")
                         .hasAnyRole(Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())
+
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/cashier-reconciliation/current/legacy-actor-resolutions")
+                        .hasAnyRole(Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())
+
+                        .requestMatchers(HttpMethod.POST,
+                                "/api/cashier-reconciliation/legacy-actor-resolution/*")
+                        .hasRole(Role.SUPER_ADMIN.name())
 
                         .requestMatchers(HttpMethod.POST, "/api/cashier-reconciliation/*/reopen")
                         .hasAnyRole(Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())

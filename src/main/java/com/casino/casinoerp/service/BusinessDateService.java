@@ -122,7 +122,7 @@ public class BusinessDateService {
             throw new RuntimeException("Business date is already CLOSED.");
         }
 
-        List<String> errors = validationService.validateCloseRequirements();
+        List<String> errors = validationService.validateCloseRequirements(businessDate);
 
         if (!errors.isEmpty()) {
             throw new RuntimeException(String.join(" | ", errors));

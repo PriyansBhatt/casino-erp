@@ -12,6 +12,7 @@ import jakarta.persistence.QueryHint;
 import java.util.UUID;
 import java.util.List;
 import java.util.Optional;
+import java.time.LocalDate;
 
 public interface PitTableRepository extends JpaRepository<PitTable, UUID> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
@@ -20,5 +21,6 @@ public interface PitTableRepository extends JpaRepository<PitTable, UUID> {
     Optional<PitTable> findByIdForUpdate(@Param("tableId") UUID tableId);
 
     List<PitTable> findByStatusIgnoreCase(String status);
+    List<PitTable> findByStatusIgnoreCaseAndBusinessDate(String status, LocalDate businessDate);
     Optional<PitTable> findByTableCodeIgnoreCase(String tableCode);
 }

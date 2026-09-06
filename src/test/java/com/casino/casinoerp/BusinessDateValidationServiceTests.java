@@ -1,0 +1,229 @@
+package com.casino.casinoerp;
+
+import com.casino.casinoerp.dto.SessionFinancialPositionResponse;
+import com.casino.casinoerp.entity.CashierReconciliation;
+import com.casino.casinoerp.entity.ChipBuyIn;
+import com.casino.casinoerp.entity.CustomerSession;
+import com.casino.casinoerp.entity.LegacyCashActorResolution;
+import com.casino.casinoerp.entity.PitTable;
+import com.casino.casinoerp.entity.PitTableCustomerAssignment;
+import com.casino.casinoerp.entity.PitTableCustomerAssignmentStatus;
+import com.casino.casinoerp.entity.User;
+import com.casino.casinoerp.repository.CashierReconciliationRepository;
+import com.casino.casinoerp.repository.CashierOpeningBalanceRepository;
+import com.casino.casinoerp.repository.ChipBuyInRepository;
+import com.casino.casinoerp.repository.ChipCashOutRepository;
+import com.casino.casinoerp.repository.CustomerSessionRepository;
+import com.casino.casinoerp.repository.PitTableCustomerAssignmentRepository;
+import com.casino.casinoerp.repository.PitTableRepository;
+import com.casino.casinoerp.repository.UserRepository;
+import com.casino.casinoerp.repository.LegacyCashActorResolutionRepository;
+import com.casino.casinoerp.repository.LosingReturnRepository;
+import com.casino.casinoerp.security.Role;
+import com.casino.casinoerp.service.BusinessDateValidationService;
+import com.casino.casinoerp.service.SessionFinancialPositionService;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+class BusinessDateValidationServiceTests {
+    private final CustomerSessionRepository sessions = mock(CustomerSessionRepository.class);
+    private final PitTableCustomerAssignmentRepository assignments =
+            mock(PitTableCustomerAssignmentRepository.class);
+    private final SessionFinancialPositionService positions = mock(SessionFinancialPositionService.class);
+    private final PitTableRepository tables = mock(PitTableRepository.class);
+    private final CashierReconciliationRepository reconciliations =
+            mock(CashierReconciliationRepository.class);
+    private final UserRepository users = mock(UserRepository.class);
+    private final CashierOpeningBalanceRepository openingBalances = mock(CashierOpeningBalanceRepository.class);
+    private final ChipBuyInRepository buyIns = mock(ChipBuyInRepository.class);
+    private final ChipCashOutRepository cashOuts = mock(ChipCashOutRepository.class);
+    private final LosingReturnRepository losingReturns = mock(LosingReturnRepository.class);
+    private final LegacyCashActorResolutionRepository legacyResolutions =
+            mock(LegacyCashActorResolutionRepository.class);
+    private final BusinessDateValidationService service = new BusinessDateValidationService(
+            sessions, assignments, positions, tables, reconciliations, users,
+            openingBalances, buyIns, cashOuts, losingReturns, legacyResolutions);
+    private final LocalDate date = LocalDate.of(2026, 8, 8);
+
+    @BeforeEach
+    void settledBusinessDate() {
+        when(sessions.findByStatusIgnoreCaseAndBusinessDateOrderByEntryTimeAsc("OPEN", date))
+                .thenReturn(List.of());
+        when(tables.findByStatusIgnoreCaseAndBusinessDate("OPEN", date)).thenReturn(List.of());
+        when(reconciliations.findByBusinessDateOrderBySubmittedAtDesc(date)).thenReturn(List.of());
+        when(users.findAll()).thenReturn(List.of());
+        when(buyIns.findByBusinessDate(date)).thenReturn(List.of());
+        when(cashOuts.findByBusinessDate(date)).thenReturn(List.of());
+        when(losingReturns.findByBusinessDate(date)).thenReturn(List.of());
+    }
+
+    @Test
+    void allSessionsSettledTablesClosedAndReconciliationsResolvedAllowsClose() {
+        assertThat(service.validateCloseRequirements(date)).isEmpty();
+    }
+
+    @Test
+    void positiveCustomerChipPositionBlocksClose() {
+        CustomerSession session = openSession();
+        stubPosition(session, new BigDecimal("5000"));
+
+        assertThat(service.validateCloseRequirements(date))
+                .anyMatch(error -> error.contains("positive chip positions"));
+    }
+
+    @Test
+    void negativeCustomerChipPositionBlocksClose() {
+        CustomerSession session = openSession();
+        stubPosition(session, new BigDecimal("-500"));
+
+        assertThat(service.validateCloseRequirements(date))
+                .anyMatch(error -> error.contains("negative chip positions"));
+    }
+
+    @Test
+    void activePitAssignmentBlocksClose() {
+        CustomerSession session = openSession();
+        stubPosition(session, BigDecimal.ZERO);
+        when(assignments.findByCustomerSessionIdAndStatus(
+                session.getId(), PitTableCustomerAssignmentStatus.ACTIVE))
+                .thenReturn(Optional.of(new PitTableCustomerAssignment()));
+
+        assertThat(service.validateCloseRequirements(date))
+                .anyMatch(error -> error.contains("ACTIVE Pit Table assignment"));
+    }
+
+    @Test
+    void openPitTableBlocksClose() {
+        when(tables.findByStatusIgnoreCaseAndBusinessDate("OPEN", date))
+                .thenReturn(List.of(new PitTable()));
+
+        assertThat(service.validateCloseRequirements(date))
+                .anyMatch(error -> error.contains("Pit Table(s) still OPEN"));
+    }
+
+    @Test
+    void unsubmittedCashierReconciliationBlocksClose() {
+        when(users.findAll()).thenReturn(List.of(activeCashier()));
+
+        assertThat(service.validateCloseRequirements(date))
+                .anyMatch(error -> error.contains("have not submitted reconciliation"));
+    }
+
+    @Test
+    void reopenedCashierReconciliationBlocksClose() {
+        User cashier = activeCashier();
+        CashierReconciliation reconciliation = reconciliation(cashier, "REOPENED");
+        when(users.findAll()).thenReturn(List.of(cashier));
+        when(reconciliations.findByBusinessDateOrderBySubmittedAtDesc(date))
+                .thenReturn(List.of(reconciliation));
+
+        assertThat(service.validateCloseRequirements(date))
+                .anyMatch(error -> error.contains("remain REOPENED"));
+    }
+
+    @Test
+    void resolvingAllIssuesAllowsClose() {
+        User cashier = activeCashier();
+        when(users.findAll()).thenReturn(List.of(cashier));
+        when(reconciliations.findByBusinessDateOrderBySubmittedAtDesc(date))
+                .thenReturn(List.of(reconciliation(cashier, "SUBMITTED")));
+
+        assertThat(service.validateCloseRequirements(date)).isEmpty();
+    }
+
+    @Test
+    void unresolvedNonCashierCashBucketBlocksClose() {
+        User admin = user(Role.SUPER_ADMIN);
+        ChipBuyIn buyIn = new ChipBuyIn();
+        buyIn.setCreatedBy(admin.getId());
+        buyIn.setPaymentMode("CASH");
+        buyIn.setAmountReceived(new BigDecimal("54000"));
+        when(users.findById(admin.getId())).thenReturn(Optional.of(admin));
+        when(buyIns.findByBusinessDate(date)).thenReturn(List.of(buyIn));
+        when(openingBalances.findByCashierUserIdAndBusinessDate(admin.getId(), date))
+                .thenReturn(Optional.empty());
+        when(reconciliations.findByCashierUserIdAndBusinessDate(admin.getId(), date))
+                .thenReturn(Optional.empty());
+        when(legacyResolutions.findByActorUserIdAndBusinessDate(admin.getId(), date))
+                .thenReturn(Optional.empty());
+
+        assertThat(service.validateCloseRequirements(date))
+                .anyMatch(error -> error.contains("non-CASHIER CASH activity bucket"));
+    }
+
+    @Test
+    void matchingLegacyNonCashierResolutionAllowsClose() {
+        User admin = user(Role.SUPER_ADMIN);
+        ChipBuyIn buyIn = new ChipBuyIn();
+        buyIn.setCreatedBy(admin.getId());
+        buyIn.setPaymentMode("CASH");
+        buyIn.setAmountReceived(new BigDecimal("54000"));
+        LegacyCashActorResolution resolution = new LegacyCashActorResolution();
+        resolution.setActorUserId(admin.getId());
+        resolution.setBusinessDate(date);
+        resolution.setCashReceived(new BigDecimal("54000"));
+        resolution.setCashPaid(BigDecimal.ZERO);
+        resolution.setNetCashMovement(new BigDecimal("54000"));
+        when(users.findById(admin.getId())).thenReturn(Optional.of(admin));
+        when(buyIns.findByBusinessDate(date)).thenReturn(List.of(buyIn));
+        when(openingBalances.findByCashierUserIdAndBusinessDate(admin.getId(), date))
+                .thenReturn(Optional.empty());
+        when(reconciliations.findByCashierUserIdAndBusinessDate(admin.getId(), date))
+                .thenReturn(Optional.empty());
+        when(legacyResolutions.findByActorUserIdAndBusinessDate(admin.getId(), date))
+                .thenReturn(Optional.of(resolution));
+
+        assertThat(service.validateCloseRequirements(date)).isEmpty();
+    }
+
+    private CustomerSession openSession() {
+        CustomerSession session = new CustomerSession();
+        session.setId(UUID.randomUUID());
+        session.setCustomerId(UUID.randomUUID());
+        session.setBusinessDate(date);
+        session.setStatus("OPEN");
+        when(sessions.findByStatusIgnoreCaseAndBusinessDateOrderByEntryTimeAsc("OPEN", date))
+                .thenReturn(List.of(session));
+        when(assignments.findByCustomerSessionIdAndStatus(
+                session.getId(), PitTableCustomerAssignmentStatus.ACTIVE))
+                .thenReturn(Optional.empty());
+        return session;
+    }
+
+    private void stubPosition(CustomerSession session, BigDecimal value) {
+        when(positions.getPosition(session.getId())).thenReturn(new SessionFinancialPositionResponse(
+                session.getCustomerId(), session.getId(), date, BigDecimal.ZERO, BigDecimal.ZERO,
+                BigDecimal.ZERO, BigDecimal.ZERO, value));
+    }
+
+    private User activeCashier() {
+        User user = user(Role.CASHIER);
+        user.setStatus("ACTIVE");
+        return user;
+    }
+
+    private User user(Role role) {
+        User user = new User();
+        user.setId(UUID.randomUUID());
+        user.setRole(role.name());
+        return user;
+    }
+
+    private CashierReconciliation reconciliation(User cashier, String status) {
+        CashierReconciliation value = new CashierReconciliation();
+        value.setCashierUserId(cashier.getId());
+        value.setBusinessDate(date);
+        value.setLifecycleStatus(status);
+        return value;
+    }
+}

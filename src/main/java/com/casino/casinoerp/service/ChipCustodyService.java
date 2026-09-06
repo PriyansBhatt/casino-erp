@@ -27,6 +27,7 @@ public class ChipCustodyService {
     private final CurrentUserRoleService currentRoles;
     private final RolePermissionService permissions;
     private final AuditLogService audit;
+    private final SessionFinancialPositionService financialPositions;
 
     public ChipCustodyService(ChipCustodyMovementRepository movements,
             ChipCustodyInventoryRepository inventory, PitTableRepository pitTables,
@@ -35,7 +36,7 @@ public class ChipCustodyService {
             BusinessDateService businessDates,
             SystemLockService systemLock, AuthenticatedUserService authenticatedUsers,
             CurrentUserRoleService currentRoles, RolePermissionService permissions,
-            AuditLogService audit) {
+            AuditLogService audit, SessionFinancialPositionService financialPositions) {
         this.movements = movements;
         this.inventory = inventory;
         this.pitTables = pitTables;
@@ -47,6 +48,7 @@ public class ChipCustodyService {
         this.currentRoles = currentRoles;
         this.permissions = permissions;
         this.audit = audit;
+        this.financialPositions = financialPositions;
     }
 
     @Transactional
@@ -94,6 +96,88 @@ public class ChipCustodyService {
                 ChipCustodyLocationType.CUSTOMER_SESSION, sessionId, ChipCustodyLocationType.CAGE, null,
                 denominations, "CHIP_CASH_OUT", transactionId, sessionId, null,
                 "CASH_OUT_RETURN:" + transactionId, actorId, expectedTotal, businessDate);
+    }
+
+    @Transactional
+    public ChipCustodyMovementResponse correctLegacySessionCustody(
+            LegacySessionCustodyCorrectionRequest request) {
+        if (!permissions.canCorrectLegacyChipCustody(currentRoles.getCurrentRole().orElse(null))) {
+            throw new RuntimeException("Access denied. Only Super Admin can correct legacy session custody.");
+        }
+        businessDates.validateBusinessDateIsOpen();
+        if (systemLock.isSystemLocked()) {
+            throw new ResourceConflictException(
+                    "System is locked. Legacy session custody correction is not allowed.");
+        }
+
+        CustomerSession session = customerSessions.findByIdForUpdate(request.customerSessionId())
+                .orElseThrow(() -> new com.casino.casinoerp.exception.ResourceNotFoundException(
+                        "Customer session not found."));
+        if (!"OPEN".equalsIgnoreCase(session.getStatus())) {
+            throw new ResourceConflictException(
+                    "Customer session must be OPEN for a legacy custody correction.");
+        }
+        LocalDate currentBusinessDate = businessDates.getCurrentBusinessDate();
+        if (!currentBusinessDate.equals(session.getBusinessDate())) {
+            throw new ResourceConflictException(
+                    "Customer session does not belong to the current OPEN Business Date.");
+        }
+
+        String reason = request.reason().trim();
+        if (reason.length() < 10) {
+            throw new IllegalArgumentException(
+                    "Correction reason must be between 10 and 500 characters.");
+        }
+        Map<Integer, Long> denominations = normalize(request.denominations());
+        BigDecimal correctionAmount = total(denominations);
+        String idempotencyKey = request.idempotencyKey().trim();
+        ChipCustodyMovement replay = movements.findByIdempotencyKey(idempotencyKey).orElse(null);
+        if (replay != null) {
+            validateReplay(replay, ChipCustodyMovementType.LEGACY_CUSTODY_CORRECTION,
+                    null, session.getId(), denominations, correctionAmount);
+            if (!Objects.equals(replay.getCorrectionReason(), reason)) {
+                throw new ResourceConflictException(
+                        "Idempotency key has already been used for a different chip custody movement.");
+            }
+            return response(replay);
+        }
+        BigDecimal positionBefore = financialPositions.getPosition(session.getId()).calculatedChipPosition();
+        if (positionBefore.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new ResourceConflictException(
+                    "Legacy custody correction requires a positive authoritative financial position.");
+        }
+
+        BigDecimal custodyBefore = inventory(
+                locationKey(ChipCustodyLocationType.CUSTOMER_SESSION, session.getId()),
+                ChipCustodyLocationType.CUSTOMER_SESSION, session.getId()).totalValue();
+        if (custodyBefore.compareTo(positionBefore) >= 0) {
+            throw new ResourceConflictException(
+                    "Customer physical custody already resolves the authoritative financial position.");
+        }
+        BigDecimal custodyAfter = custodyBefore.add(correctionAmount);
+        if (custodyAfter.compareTo(positionBefore) > 0) {
+            throw new ResourceConflictException(
+                    "Legacy custody correction cannot exceed the authoritative financial position gap.");
+        }
+
+        UUID actorId = authenticatedUsers.getRequiredUser().getId();
+        ChipCustodyMovement movement = transfer(ChipCustodyMovementType.LEGACY_CUSTODY_CORRECTION,
+                ChipCustodyLocationType.CAGE, null,
+                ChipCustodyLocationType.CUSTOMER_SESSION, session.getId(), denominations,
+                "LEGACY_CUSTODY_CORRECTION", null, session.getId(), null, idempotencyKey,
+                actorId, correctionAmount, currentBusinessDate, reason);
+
+        BigDecimal positionAfter = financialPositions.getPosition(session.getId()).calculatedChipPosition();
+        if (positionAfter.compareTo(positionBefore) != 0) {
+            throw new IllegalStateException(
+                    "Legacy custody correction unexpectedly changed the authoritative financial position.");
+        }
+        audit.log("LEGACY_SESSION_CUSTODY_CORRECTION", "CHIP_CUSTODY_MOVEMENT",
+                movement.getId(), actorId,
+                "sessionId=" + session.getId() + ", businessDate=" + currentBusinessDate
+                        + ", correctionAmount=" + correctionAmount + ", denominations=" + denominations
+                        + ", resultingCustodyTotal=" + custodyAfter + ", reason=" + reason);
+        return response(movement);
     }
 
     @Transactional
@@ -220,6 +304,17 @@ public class ChipCustodyService {
             Map<Integer, Long> requested, String relatedType, UUID relatedId,
             UUID sessionId, UUID tableId, String idempotencyKey, UUID actorId,
             BigDecimal expectedTotal, LocalDate businessDate) {
+        return transfer(movementType, sourceType, sourceReferenceId, destinationType,
+                destinationReferenceId, requested, relatedType, relatedId, sessionId, tableId,
+                idempotencyKey, actorId, expectedTotal, businessDate, null);
+    }
+
+    private ChipCustodyMovement transfer(ChipCustodyMovementType movementType,
+            ChipCustodyLocationType sourceType, UUID sourceReferenceId,
+            ChipCustodyLocationType destinationType, UUID destinationReferenceId,
+            Map<Integer, Long> requested, String relatedType, UUID relatedId,
+            UUID sessionId, UUID tableId, String idempotencyKey, UUID actorId,
+            BigDecimal expectedTotal, LocalDate businessDate, String correctionReason) {
         ChipCustodyMovement replay = movements.findByIdempotencyKey(idempotencyKey).orElse(null);
         Map<Integer, Long> denominations = normalize(requested);
         BigDecimal total = total(denominations);
@@ -283,6 +378,7 @@ public class ChipCustodyService {
         movement.setIdempotencyKey(idempotencyKey);
         movement.setCreatedBy(actorId);
         movement.setCreatedAt(LocalDateTime.now());
+        movement.setCorrectionReason(correctionReason);
         ChipCustodyMovement saved = movements.save(movement);
         audit.log("CREATE_CHIP_CUSTODY_MOVEMENT", "CHIP_CUSTODY_MOVEMENT", saved.getId(), actorId,
                 movementType + ", totalValue=" + total + ", businessDate=" + businessDate);
@@ -457,6 +553,6 @@ public class ChipCustodyService {
                 movement.getRelatedTransactionType(), movement.getRelatedTransactionId(),
                 movement.getCustomerSessionId(), movement.getPitTableId(),
                 Map.copyOf(movement.getDenominations()), movement.getTotalValue(),
-                movement.getCreatedBy(), movement.getCreatedAt());
+                movement.getCreatedBy(), movement.getCreatedAt(), movement.getCorrectionReason());
     }
 }

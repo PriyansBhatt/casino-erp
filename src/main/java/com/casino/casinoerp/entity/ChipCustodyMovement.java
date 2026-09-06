@@ -63,6 +63,9 @@ public class ChipCustodyMovement {
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
+    @Column(name = "correction_reason", length = 500, updatable = false)
+    private String correctionReason;
+
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(name = "chip_custody_movement_lines", schema = "cashier",
             joinColumns = @JoinColumn(name = "movement_id"))

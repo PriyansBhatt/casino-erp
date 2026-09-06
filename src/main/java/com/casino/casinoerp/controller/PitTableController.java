@@ -3,7 +3,11 @@ package com.casino.casinoerp.controller;
 import com.casino.casinoerp.entity.PitTable;
 import com.casino.casinoerp.service.PitTableService;
 import com.casino.casinoerp.dto.CreatePitTableRequest;
+import com.casino.casinoerp.dto.LegacyPitTableReconciliationRequest;
 import com.casino.casinoerp.dto.PitTableResponse;
+import com.casino.casinoerp.dto.PitTableReconciliationResponse;
+import com.casino.casinoerp.service.LegacyPitTableReconciliationService;
+import com.casino.casinoerp.service.PitTableReconciliationService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
@@ -11,8 +15,6 @@ import java.math.BigDecimal;
 import java.util.UUID;
 
 
-import java.util.LinkedHashMap;
-import java.util.Map;
 import java.util.List;
 
 @RestController
@@ -20,9 +22,16 @@ import java.util.List;
 public class PitTableController {
 
     private final PitTableService service;
+    private final PitTableReconciliationService reconciliationService;
+    private final LegacyPitTableReconciliationService legacyReconciliationService;
 
-    public PitTableController(PitTableService service) {
+    public PitTableController(
+            PitTableService service,
+            PitTableReconciliationService reconciliationService,
+            LegacyPitTableReconciliationService legacyReconciliationService) {
         this.service = service;
+        this.reconciliationService = reconciliationService;
+        this.legacyReconciliationService = legacyReconciliationService;
     }
 
     @GetMapping("/open")
@@ -49,39 +58,16 @@ public class PitTableController {
         return service.closeTable(tableId, closingFloat);
     }
 
+    @PostMapping("/{tableId}/legacy-reconciliation-resolution")
+    public PitTableReconciliationResponse resolveLegacyReconciliation(
+            @PathVariable UUID tableId,
+            @Valid @RequestBody LegacyPitTableReconciliationRequest request) {
+        return legacyReconciliationService.resolve(tableId, request);
+    }
+
     @GetMapping("/{tableId}/reconciliation")
-    public Map<String, Object> getTableReconciliation(@PathVariable UUID tableId) {
-
-        PitTable table = service.getTableById(tableId);
-
-        BigDecimal openingFloat = table.getOpeningFloat();
-        BigDecimal closingFloat = table.getClosingFloat();
-
-        BigDecimal tableDifference = openingFloat == null || closingFloat == null
-                ? null
-                : openingFloat.subtract(closingFloat);
-
-        String tableStatus;
-
-        if (tableDifference == null) {
-            tableStatus = "PENDING_CLOSE";
-        } else if (tableDifference.compareTo(BigDecimal.ZERO) > 0) {
-            tableStatus = "TABLE_PROFIT";
-        } else if (tableDifference.compareTo(BigDecimal.ZERO) < 0) {
-            tableStatus = "TABLE_LOSS";
-        } else {
-            tableStatus = "BALANCED";
-        }
-
-        Map<String, Object> response = new LinkedHashMap<>();
-        response.put("tableId", table.getId());
-        response.put("tableCode", table.getTableCode());
-        response.put("openingFloat", openingFloat);
-        response.put("closingFloat", closingFloat);
-        response.put("tableDifference", tableDifference);
-        response.put("tableStatus", tableStatus);
-
-        return response;
+    public PitTableReconciliationResponse getTableReconciliation(@PathVariable UUID tableId) {
+        return reconciliationService.reconcile(service.getTableById(tableId));
     }
     
     @GetMapping

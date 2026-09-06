@@ -31,6 +31,9 @@ class ChipCustodySecurityTests {
     @MockitoBean com.casino.casinoerp.service.JwtService jwtService;
 
     private static final String BODY = "{\"denominations\":{\"1000\":10},\"idempotencyKey\":\"test-key\"}";
+    private static final String CORRECTION_BODY = "{\"customerSessionId\":\"00000000-0000-0000-0000-000000000001\","
+            + "\"denominations\":{\"5000\":1},\"reason\":\"Legacy pre-ledger custody correction\","
+            + "\"idempotencyKey\":\"legacy-correction-test\"}";
 
     @Test void unauthenticatedRequestsAreDenied() throws Exception {
         mockMvc.perform(get("/api/chip-custody/cage")).andExpect(status().isForbidden());
@@ -82,6 +85,27 @@ class ChipCustodySecurityTests {
                 .andExpect(status().isOk());
         mockMvc.perform(get("/api/chip-custody/movements/current").with(user("admin").roles("SUPER_ADMIN")))
                 .andExpect(status().isOk());
+    }
+
+    @Test void onlySuperAdminCanCorrectLegacySessionCustody() throws Exception {
+        String path = "/api/chip-custody/legacy-session-correction";
+        mockMvc.perform(post(path).with(user("admin").roles("SUPER_ADMIN"))
+                        .contentType(MediaType.APPLICATION_JSON).content(CORRECTION_BODY))
+                .andExpect(status().isCreated());
+        mockMvc.perform(post(path).with(user("director").roles("DIRECTOR"))
+                        .contentType(MediaType.APPLICATION_JSON).content(CORRECTION_BODY))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post(path).with(user("cashier").roles("CASHIER"))
+                        .contentType(MediaType.APPLICATION_JSON).content(CORRECTION_BODY))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test void legacyCorrectionRequiresAReasonOfSensibleLength() throws Exception {
+        mockMvc.perform(post("/api/chip-custody/legacy-session-correction")
+                        .with(user("admin").roles("SUPER_ADMIN"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(CORRECTION_BODY.replace("Legacy pre-ledger custody correction", "short")))
+                .andExpect(status().isBadRequest());
     }
 
     private ChipCustodyInventoryResponse inventory() {

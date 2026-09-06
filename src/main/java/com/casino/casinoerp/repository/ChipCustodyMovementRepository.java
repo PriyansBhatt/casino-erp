@@ -13,5 +13,6 @@ public interface ChipCustodyMovementRepository extends JpaRepository<ChipCustody
     Optional<ChipCustodyMovement> findByIdempotencyKey(String idempotencyKey);
     boolean existsByMovementType(ChipCustodyMovementType movementType);
     boolean existsByMovementTypeAndPitTableId(ChipCustodyMovementType movementType, UUID pitTableId);
+    Optional<ChipCustodyMovement> findFirstByOrderByCreatedAtAsc();
     List<ChipCustodyMovement> findByBusinessDateOrderByCreatedAtDesc(LocalDate businessDate);
 }

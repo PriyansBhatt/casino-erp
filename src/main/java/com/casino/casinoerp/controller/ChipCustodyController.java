@@ -25,6 +25,14 @@ public class ChipCustodyController {
         return ApiResponse.success("Cage opening chip inventory recorded successfully", service.initializeCage(request));
     }
 
+    @PostMapping("/legacy-session-correction")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ApiResponse<ChipCustodyMovementResponse> correctLegacySessionCustody(
+            @Valid @RequestBody LegacySessionCustodyCorrectionRequest request) {
+        return ApiResponse.success("Legacy customer-session custody corrected successfully",
+                service.correctLegacySessionCustody(request));
+    }
+
     @GetMapping("/cage")
     public ApiResponse<ChipCustodyInventoryResponse> cageInventory() {
         return ApiResponse.success("Cage chip inventory loaded successfully", service.cageInventory());

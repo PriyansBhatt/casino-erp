@@ -84,6 +84,18 @@ public class RolePermissionService {
         return role == Role.SUPER_ADMIN;
     }
 
+    public boolean canCorrectLegacyChipCustody(Role role) {
+        return role == Role.SUPER_ADMIN;
+    }
+
+    public boolean canResolveLegacyPitTableReconciliation(Role role) {
+        return role == Role.SUPER_ADMIN;
+    }
+
+    public boolean canResolveLegacyCashActorBucket(Role role) {
+        return role == Role.SUPER_ADMIN;
+    }
+
     public boolean canViewCashierReconciliation(Role role) {
         return role == Role.CASHIER || role == Role.DIRECTOR || role == Role.SUPER_ADMIN;
     }

@@ -6,6 +6,8 @@ import com.casino.casinoerp.controller.PitTableController;
 import com.casino.casinoerp.entity.PitTable;
 import com.casino.casinoerp.service.JwtService;
 import com.casino.casinoerp.service.PitTableService;
+import com.casino.casinoerp.service.PitTableReconciliationService;
+import com.casino.casinoerp.service.LegacyPitTableReconciliationService;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,6 +37,8 @@ class PitTableControllerSecurityTests {
             """;
     @Autowired MockMvc mockMvc;
     @MockitoBean PitTableService service;
+    @MockitoBean PitTableReconciliationService reconciliationService;
+    @MockitoBean LegacyPitTableReconciliationService legacyReconciliationService;
     @MockitoBean JwtService jwtService;
 
     @ParameterizedTest
@@ -79,6 +83,26 @@ class PitTableControllerSecurityTests {
         mockMvc.perform(put("/api/pit-tables/{tableId}/close", TABLE_ID)
                         .param("closingFloat", "90000").with(user(role.toLowerCase()).roles(role)))
                 .andExpect(status().isForbidden());
+    }
+
+    @org.junit.jupiter.api.Test
+    void onlySuperAdminCanResolveLegacyTableReconciliation() throws Exception {
+        String body = """
+                {"physicalClosingFloat":0,
+                 "reason":"Legacy table predates authoritative physical custody tracking.",
+                 "idempotencyKey":"legacy-table-1"}
+                """;
+        mockMvc.perform(post("/api/pit-tables/{tableId}/legacy-reconciliation-resolution", TABLE_ID)
+                        .with(user("superadmin").roles("SUPER_ADMIN"))
+                        .contentType("application/json").content(body))
+                .andExpect(status().isOk());
+
+        for (String role : List.of("DIRECTOR", "CASHIER", "PIT_SUPERVISOR", "DEALER", "RECEPTIONIST")) {
+            mockMvc.perform(post("/api/pit-tables/{tableId}/legacy-reconciliation-resolution", TABLE_ID)
+                            .with(user(role.toLowerCase()).roles(role))
+                            .contentType("application/json").content(body))
+                    .andExpect(status().isForbidden());
+        }
     }
 
     private PitTable table() {

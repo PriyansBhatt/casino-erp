@@ -24,6 +24,7 @@ public record ChipCustodyMovementResponse(
         Map<Integer, Long> denominations,
         BigDecimal totalValue,
         UUID createdBy,
-        LocalDateTime createdAt
+        LocalDateTime createdAt,
+        String correctionReason
 ) {
 }

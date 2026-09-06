@@ -1,6 +1,8 @@
 package com.casino.casinoerp;
 
 import com.casino.casinoerp.dto.ChipCustodyTransferRequest;
+import com.casino.casinoerp.dto.LegacySessionCustodyCorrectionRequest;
+import com.casino.casinoerp.dto.SessionFinancialPositionResponse;
 import com.casino.casinoerp.entity.*;
 import com.casino.casinoerp.exception.ResourceConflictException;
 import com.casino.casinoerp.repository.*;
@@ -28,9 +30,11 @@ class ChipCustodyServiceTests {
     private final AuthenticatedUserService authenticatedUsers = mock(AuthenticatedUserService.class);
     private final CurrentUserRoleService currentRoles = mock(CurrentUserRoleService.class);
     private final AuditLogService audit = mock(AuditLogService.class);
+    private final SessionFinancialPositionService financialPositions = mock(SessionFinancialPositionService.class);
     private final ChipCustodyService service = new ChipCustodyService(movements, inventory, pitTables,
             customerSessions, assignments,
-            businessDates, systemLock, authenticatedUsers, currentRoles, new RolePermissionService(), audit);
+            businessDates, systemLock, authenticatedUsers, currentRoles, new RolePermissionService(), audit,
+            financialPositions);
 
     private final UUID actorId = UUID.randomUUID();
     private final UUID sessionId = UUID.randomUUID();
@@ -53,6 +57,13 @@ class ChipCustodyServiceTests {
         });
         when(inventory.findForUpdate(anyString(), anyInt())).thenAnswer(invocation ->
                 Optional.ofNullable(rows.get(key(invocation.getArgument(0), invocation.getArgument(1)))));
+        when(inventory.findByLocationKeyOrderByDenomination(anyString())).thenAnswer(invocation -> {
+            String location = invocation.getArgument(0);
+            return rows.values().stream()
+                    .filter(value -> location.equals(value.getLocationKey()))
+                    .sorted(Comparator.comparing(ChipCustodyInventory::getDenomination))
+                    .toList();
+        });
         when(inventory.saveAll(any())).thenAnswer(invocation -> {
             Iterable<ChipCustodyInventory> values = invocation.getArgument(0);
             List<ChipCustodyInventory> saved = new ArrayList<>();
@@ -65,6 +76,7 @@ class ChipCustodyServiceTests {
         when(pitTables.findByIdForUpdate(tableId)).thenReturn(Optional.of(openTable()));
         when(customerSessions.findByIdForUpdate(sessionId)).thenReturn(Optional.of(openSession()));
         when(assignments.findActiveForUpdate(sessionId, tableId)).thenReturn(Optional.of(activeAssignment()));
+        when(financialPositions.getPosition(sessionId)).thenReturn(position("5000"));
     }
 
     @Test
@@ -223,6 +235,112 @@ class ChipCustodyServiceTests {
         ChipCustodyMovement result = service.recordBuyIn(replay.getRelatedTransactionId(), sessionId,
                 businessDate, Map.of(500, 1L), new BigDecimal("500"), actorId);
         assertThat(result).isSameAs(replay);
+    }
+
+    @Test
+    void superAdminCorrectsPositiveLegacyGapWithoutChangingFinancialPosition() {
+        seedCage(5000, 3);
+
+        var result = service.correctLegacySessionCustody(correction(Map.of(5000, 1L)));
+
+        assertThat(result.movementType()).isEqualTo(ChipCustodyMovementType.LEGACY_CUSTODY_CORRECTION);
+        assertThat(result.sourceType()).isEqualTo(ChipCustodyLocationType.CAGE);
+        assertThat(result.destinationType()).isEqualTo(ChipCustodyLocationType.CUSTOMER_SESSION);
+        assertThat(result.customerSessionId()).isEqualTo(sessionId);
+        assertThat(result.totalValue()).isEqualByComparingTo("5000");
+        assertThat(result.correctionReason()).isEqualTo("Legacy pre-ledger custody correction");
+        assertThat(rows.get(key("CAGE", 5000)).getQuantity()).isEqualTo(2);
+        assertThat(rows.get(key("CUSTOMER_SESSION:" + sessionId, 5000)).getQuantity()).isEqualTo(1);
+        verify(financialPositions, times(2)).getPosition(sessionId);
+        verify(audit).log(eq("LEGACY_SESSION_CUSTODY_CORRECTION"), eq("CHIP_CUSTODY_MOVEMENT"),
+                any(), eq(actorId), contains("resultingCustodyTotal=5000"));
+    }
+
+    @Test
+    void rejectsNonPositiveExcessiveAndAlreadyResolvedCorrections() {
+        seedCage(5000, 5);
+        when(financialPositions.getPosition(sessionId)).thenReturn(position("0"));
+        assertThatThrownBy(() -> service.correctLegacySessionCustody(correction(Map.of(5000, 1L))))
+                .hasMessageContaining("positive authoritative financial position");
+        when(financialPositions.getPosition(sessionId)).thenReturn(position("-500"));
+        assertThatThrownBy(() -> service.correctLegacySessionCustody(correction(Map.of(5000, 1L))))
+                .hasMessageContaining("positive authoritative financial position");
+
+        when(financialPositions.getPosition(sessionId)).thenReturn(position("5000"));
+        assertThatThrownBy(() -> service.correctLegacySessionCustody(correction(Map.of(5000, 2L))))
+                .hasMessageContaining("cannot exceed");
+
+        seed("CUSTOMER_SESSION:" + sessionId, ChipCustodyLocationType.CUSTOMER_SESSION,
+                sessionId, 5000, 1);
+        assertThatThrownBy(() -> service.correctLegacySessionCustody(correction(Map.of(5000, 1L))))
+                .hasMessageContaining("already resolves");
+        verify(movements, never()).save(any());
+    }
+
+    @Test
+    void idempotentCorrectionRetryReturnsOriginalMovementWithoutApplyingCustodyAgain() {
+        ChipCustodyMovement replay = movement(ChipCustodyMovementType.LEGACY_CUSTODY_CORRECTION,
+                null, sessionId, Map.of(5000, 1L), "5000");
+        replay.setId(UUID.randomUUID());
+        replay.setCorrectionReason("Legacy pre-ledger custody correction");
+        when(movements.findByIdempotencyKey("legacy-correction-1")).thenReturn(Optional.of(replay));
+
+        var result = service.correctLegacySessionCustody(correction(Map.of(5000, 1L)));
+
+        assertThat(result.id()).isEqualTo(replay.getId());
+        verify(financialPositions, never()).getPosition(any());
+        verify(inventory, never()).saveAll(any());
+    }
+
+    @Test
+    void directServiceUseRejectsWhitespacePaddedShortReason() {
+        var request = new LegacySessionCustodyCorrectionRequest(sessionId, Map.of(5000, 1L),
+                "         x", "legacy-short-reason");
+        assertThatThrownBy(() -> service.correctLegacySessionCustody(request))
+                .hasMessageContaining("between 10 and 500");
+    }
+
+    @Test
+    void rejectsInsufficientCageClosedLifecycleSystemLockAndUnauthorizedRoles() {
+        seedCage(5000, 0);
+        assertThatThrownBy(() -> service.correctLegacySessionCustody(correction(Map.of(5000, 1L))))
+                .hasMessageContaining("Insufficient physical chips");
+
+        seedCage(5000, 1);
+        when(customerSessions.findByIdForUpdate(sessionId))
+                .thenReturn(Optional.of(session("CLOSED", businessDate)));
+        assertThatThrownBy(() -> service.correctLegacySessionCustody(correction(Map.of(5000, 1L))))
+                .hasMessageContaining("must be OPEN");
+
+        when(customerSessions.findByIdForUpdate(sessionId)).thenReturn(Optional.of(openSession()));
+        doThrow(new RuntimeException("Current business date is not OPEN."))
+                .when(businessDates).validateBusinessDateIsOpen();
+        assertThatThrownBy(() -> service.correctLegacySessionCustody(correction(Map.of(5000, 1L))))
+                .hasMessageContaining("not OPEN");
+        reset(businessDates);
+        when(businessDates.getCurrentBusinessDate()).thenReturn(businessDate);
+
+        when(systemLock.isSystemLocked()).thenReturn(true);
+        assertThatThrownBy(() -> service.correctLegacySessionCustody(correction(Map.of(5000, 1L))))
+                .hasMessageContaining("System is locked");
+        when(systemLock.isSystemLocked()).thenReturn(false);
+
+        when(currentRoles.getCurrentRole()).thenReturn(Optional.of(Role.DIRECTOR), Optional.of(Role.CASHIER));
+        assertThatThrownBy(() -> service.correctLegacySessionCustody(correction(Map.of(5000, 1L))))
+                .hasMessageContaining("Only Super Admin");
+        assertThatThrownBy(() -> service.correctLegacySessionCustody(correction(Map.of(5000, 1L))))
+                .hasMessageContaining("Only Super Admin");
+    }
+
+    private LegacySessionCustodyCorrectionRequest correction(Map<Integer, Long> denominations) {
+        return new LegacySessionCustodyCorrectionRequest(sessionId, denominations,
+                "Legacy pre-ledger custody correction", "legacy-correction-1");
+    }
+
+    private SessionFinancialPositionResponse position(String calculatedPosition) {
+        return new SessionFinancialPositionResponse(UUID.randomUUID(), sessionId, businessDate,
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
+                new BigDecimal(calculatedPosition));
     }
 
     private ChipCustodyTransferRequest request(Map<Integer, Long> denominations, String key) {
