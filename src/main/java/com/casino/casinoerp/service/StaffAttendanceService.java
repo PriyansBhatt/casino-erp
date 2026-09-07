@@ -67,11 +67,10 @@ public class StaffAttendanceService {
         }
 
         Instant now = clock.instant();
-        LocalDateTime casinoTime = LocalDateTime.ofInstant(now, CASINO_ZONE);
         StaffAttendance attendance = new StaffAttendance();
         attendance.setId(UUID.randomUUID());
         attendance.setUser(user);
-        attendance.setBusinessDate(businessDates.resolveBusinessDate(casinoTime));
+        attendance.setBusinessDate(businessDates.resolveAttendanceBusinessDate(now));
         attendance.setStatus(StaffAttendanceStatus.OPEN);
         attendance.setCheckInAt(now);
         attendance.setCreatedAt(now);

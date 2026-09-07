@@ -39,7 +39,7 @@ class StaffAttendanceServiceTests {
                 businessDates, audit, clock);
         when(authenticatedUsers.getRequiredUser()).thenReturn(user);
         when(users.findByIdForUpdate(user.getId())).thenReturn(Optional.of(user));
-        when(businessDates.resolveBusinessDate(any())).thenReturn(LocalDate.of(2026, 9, 7));
+        when(businessDates.resolveAttendanceBusinessDate(any())).thenReturn(LocalDate.of(2026, 9, 7));
         when(attendance.saveAndFlush(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(attendance.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
     }
@@ -75,7 +75,7 @@ class StaffAttendanceServiceTests {
         assertThat(closed.businessDate()).isEqualTo(LocalDate.of(2026, 9, 7));
         assertThat(closed.status()).isEqualTo(StaffAttendanceStatus.CLOSED);
         assertThat(closed.workedMinutes()).isEqualTo(570);
-        verify(businessDates, times(1)).resolveBusinessDate(any());
+        verify(businessDates, times(1)).resolveAttendanceBusinessDate(any());
     }
 
     @Test

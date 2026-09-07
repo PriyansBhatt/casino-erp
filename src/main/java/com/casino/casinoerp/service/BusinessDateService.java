@@ -5,9 +5,11 @@ import com.casino.casinoerp.repository.BusinessDateRepository;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 
@@ -16,6 +18,8 @@ public class BusinessDateService {
 
     private static final LocalTime BUSINESS_DAY_START =
             LocalTime.of(9, 0);
+    private static final ZoneId CASINO_TIME_ZONE =
+            ZoneId.of("Asia/Kathmandu");
 
     private final BusinessDateRepository businessDateRepository;
     private final BusinessDateValidationService validationService;
@@ -48,6 +52,15 @@ public class BusinessDateService {
             return openDates.get(0).getBusinessDate();
         }
 
+        return calculateBusinessDate(dateTime);
+    }
+
+    public LocalDate resolveAttendanceBusinessDate(Instant attendanceTime) {
+        LocalDateTime casinoTime = LocalDateTime.ofInstant(attendanceTime, CASINO_TIME_ZONE);
+        return calculateBusinessDate(casinoTime);
+    }
+
+    private LocalDate calculateBusinessDate(LocalDateTime dateTime) {
         if (dateTime.toLocalTime().isBefore(BUSINESS_DAY_START)) {
             return dateTime.toLocalDate().minusDays(1);
         }
