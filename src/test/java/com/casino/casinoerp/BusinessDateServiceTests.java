@@ -11,6 +11,7 @@ import com.casino.casinoerp.service.RolePermissionService;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -21,6 +22,20 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class BusinessDateServiceTests {
+    @Test
+    void resolvesBeforeNineAmToPreviousCasinoBusinessDate() {
+        BusinessDateRepository repository = mock(BusinessDateRepository.class);
+        when(repository.findByStatus("OPEN")).thenReturn(List.of());
+        BusinessDateService service = new BusinessDateService(repository,
+                mock(BusinessDateValidationService.class), mock(AuditLogService.class),
+                new RolePermissionService(), mock(CurrentUserRoleService.class));
+
+        assertThat(service.resolveBusinessDate(LocalDateTime.of(2026, 9, 8, 3, 30)))
+                .isEqualTo(LocalDate.of(2026, 9, 7));
+        assertThat(service.resolveBusinessDate(LocalDateTime.of(2026, 9, 8, 9, 0)))
+                .isEqualTo(LocalDate.of(2026, 9, 8));
+    }
+
     @Test
     void closesBusinessDateAfterAuthoritativeRequirementsAreResolved() {
         LocalDate date = LocalDate.of(2026, 8, 8);

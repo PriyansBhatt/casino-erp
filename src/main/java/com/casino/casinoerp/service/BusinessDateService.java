@@ -38,19 +38,21 @@ public class BusinessDateService {
     }
 
     public LocalDate getCurrentBusinessDate() {
+        return resolveBusinessDate(LocalDateTime.now());
+    }
+
+    public LocalDate resolveBusinessDate(LocalDateTime dateTime) {
         List<BusinessDate> openDates = businessDateRepository.findByStatus("OPEN");
 
         if (!openDates.isEmpty()) {
             return openDates.get(0).getBusinessDate();
         }
 
-        LocalDateTime now = LocalDateTime.now();
-
-        if (now.toLocalTime().isBefore(BUSINESS_DAY_START)) {
-            return now.toLocalDate().minusDays(1);
+        if (dateTime.toLocalTime().isBefore(BUSINESS_DAY_START)) {
+            return dateTime.toLocalDate().minusDays(1);
         }
 
-        return now.toLocalDate();
+        return dateTime.toLocalDate();
     }
 
     public void validateBusinessDateIsOpen() {
