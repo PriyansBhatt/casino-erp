@@ -16,12 +16,13 @@ public class BusinessDate {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
-    @Column(name = "business_date")
+    @Column(name = "business_date", nullable = false)
     private LocalDate businessDate;
 
+    @Column(nullable = false)
     private String status;
 
-    @Column(name = "opened_at")
+    @Column(name = "opened_at", nullable = false)
     private LocalDateTime openedAt;
 
     @Column(name = "closed_at")
