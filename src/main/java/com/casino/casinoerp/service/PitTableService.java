@@ -121,6 +121,7 @@ public class PitTableService {
 
     }
 
+    @Transactional
     public PitTable save(PitTable table) {
 
         businessDateService.validateNewOperationalMutationAllowed();

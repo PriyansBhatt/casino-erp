@@ -65,6 +65,7 @@ public class CustomerSessionService {
                 .toList();
     }
 
+    @Transactional
     public ReceptionSessionResponse openSession(UUID customerId) {
         validateSessionRole("Access denied. Only Receptionist or Super Admin can create sessions.");
         businessDateService.validateNewOperationalMutationAllowed();

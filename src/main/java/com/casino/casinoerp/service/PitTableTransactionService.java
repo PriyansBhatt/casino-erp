@@ -3,6 +3,7 @@ package com.casino.casinoerp.service;
 import com.casino.casinoerp.entity.PitTableTransaction;
 import com.casino.casinoerp.repository.PitTableTransactionRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -33,6 +34,7 @@ public class PitTableTransactionService {
         this.currentUserRoleService = currentUserRoleService;
     }
 
+    @Transactional
     public PitTableTransaction save(PitTableTransaction transaction) {
 
         businessDateService.validateNewOperationalMutationAllowed();

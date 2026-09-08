@@ -3,6 +3,7 @@ package com.casino.casinoerp.service;
 import com.casino.casinoerp.entity.CustomerServiceRecord;
 import com.casino.casinoerp.repository.CustomerServiceRecordRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -31,6 +32,7 @@ public class CustomerServiceRecordService {
         this.currentUserRoleService = currentUserRoleService;
     }
 
+    @Transactional
     public CustomerServiceRecord save(CustomerServiceRecord record) {
 
         businessDateService.validateNewOperationalMutationAllowed();

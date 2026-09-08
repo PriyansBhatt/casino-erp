@@ -3,6 +3,7 @@ package com.casino.casinoerp.service;
 import com.casino.casinoerp.entity.WalletTransaction;
 import com.casino.casinoerp.repository.WalletTransactionRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -61,6 +62,7 @@ public class WalletTransactionService {
         return repository.findByBusinessDate(businessDate);
     }
 
+    @Transactional
     public WalletTransaction save(WalletTransaction transaction) {
 
         if ("CASH_OUT".equalsIgnoreCase(transaction.getTransactionType())) {

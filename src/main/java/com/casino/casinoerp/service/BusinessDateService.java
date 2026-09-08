@@ -8,6 +8,7 @@ import com.casino.casinoerp.repository.BusinessDateRepository;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
@@ -114,7 +115,9 @@ public class BusinessDateService {
                 false, 0, null);
     }
 
+    @Transactional(propagation = Propagation.MANDATORY)
     public void validateNewOperationalMutationAllowed() {
+        businessDateRepository.acquireLifecycleLock();
         BusinessDateHealthResponse health = getHealth();
         switch (health.health()) {
             case HEALTHY -> { }
@@ -131,7 +134,9 @@ public class BusinessDateService {
         }
     }
 
+    @Transactional(propagation = Propagation.MANDATORY)
     public void validateSettlementMutationAllowed() {
+        businessDateRepository.acquireLifecycleLock();
         BusinessDateHealthResponse health = getHealth();
         switch (health.health()) {
             case HEALTHY, STALE -> { }

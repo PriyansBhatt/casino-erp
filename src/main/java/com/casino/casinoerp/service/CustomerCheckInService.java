@@ -3,6 +3,7 @@ package com.casino.casinoerp.service;
 import com.casino.casinoerp.entity.CustomerCheckIn;
 import com.casino.casinoerp.repository.CustomerCheckInRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import com.casino.casinoerp.service.BusinessDateValidationService;
 
 import java.util.List;
@@ -40,6 +41,7 @@ public class CustomerCheckInService {
         return customerCheckInRepository.findAll();
     }
 
+    @Transactional
     public CustomerCheckIn save(CustomerCheckIn checkIn) {
 
         businessDateService.validateNewOperationalMutationAllowed();
