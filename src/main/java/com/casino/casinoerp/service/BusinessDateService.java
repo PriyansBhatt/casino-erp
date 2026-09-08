@@ -3,9 +3,12 @@ package com.casino.casinoerp.service;
 import com.casino.casinoerp.entity.BusinessDate;
 import com.casino.casinoerp.entity.BusinessDateHealth;
 import com.casino.casinoerp.dto.BusinessDateHealthResponse;
+import com.casino.casinoerp.exception.ResourceConflictException;
 import com.casino.casinoerp.repository.BusinessDateRepository;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -145,16 +148,18 @@ public class BusinessDateService {
         return Optional.of(openDates.get(0));
     }
 
+    @Transactional
     public BusinessDate openBusinessDate(LocalDate businessDate, String remarks) {
 
         validateBusinessDateLifecycleRole();
+        businessDateRepository.acquireLifecycleLock();
 
         if (!businessDateRepository.findByStatus("OPEN").isEmpty()) {
-            throw new RuntimeException("Another business date is already OPEN.");
+            throw new ResourceConflictException("Another business date is already OPEN.");
         }
 
         if (businessDateRepository.findByBusinessDate(businessDate).isPresent()) {
-            throw new RuntimeException("Business date already exists.");
+            throw new ResourceConflictException("Business date already exists.");
         }
 
         BusinessDate bd = new BusinessDate();
@@ -163,7 +168,7 @@ public class BusinessDateService {
         bd.setOpenedAt(currentCasinoDateTime());
         bd.setRemarks(remarks);
 
-        BusinessDate saved = businessDateRepository.save(bd);
+        BusinessDate saved = saveLifecycleChange(bd);
 
         auditLogService.log(
                 "OPEN_BUSINESS_DATE",
@@ -176,16 +181,18 @@ public class BusinessDateService {
         return saved;
     }
 
+    @Transactional
     public BusinessDate closeBusinessDate(LocalDate businessDate) {
 
         validateBusinessDateLifecycleRole();
+        businessDateRepository.acquireLifecycleLock();
 
         BusinessDate bd = businessDateRepository
-                .findByBusinessDate(businessDate)
+                .findByBusinessDateForUpdate(businessDate)
                 .orElseThrow(() -> new RuntimeException("Business date not found."));
 
         if ("CLOSED".equalsIgnoreCase(bd.getStatus())) {
-            throw new RuntimeException("Business date is already CLOSED.");
+            throw new ResourceConflictException("Business date is already CLOSED.");
         }
 
         List<String> errors = validationService.validateCloseRequirements(businessDate);
@@ -197,7 +204,7 @@ public class BusinessDateService {
         bd.setStatus("CLOSED");
         bd.setClosedAt(currentCasinoDateTime());
 
-        BusinessDate saved = businessDateRepository.save(bd);
+        BusinessDate saved = saveLifecycleChange(bd);
 
         auditLogService.log(
                 "CLOSE_BUSINESS_DATE",
@@ -210,27 +217,29 @@ public class BusinessDateService {
         return saved;
     }
 
+    @Transactional
     public BusinessDate reopenBusinessDate(LocalDate businessDate, String remarks) {
 
         validateBusinessDateLifecycleRole();
+        businessDateRepository.acquireLifecycleLock();
 
         if (!businessDateRepository.findByStatus("OPEN").isEmpty()) {
-            throw new RuntimeException("Another business date is already OPEN.");
+            throw new ResourceConflictException("Another business date is already OPEN.");
         }
 
         BusinessDate bd = businessDateRepository
-                .findByBusinessDate(businessDate)
+                .findByBusinessDateForUpdate(businessDate)
                 .orElseThrow(() -> new RuntimeException("Business date not found."));
 
         if ("OPEN".equalsIgnoreCase(bd.getStatus())) {
-            throw new RuntimeException("Business date is already OPEN.");
+            throw new ResourceConflictException("Business date is already OPEN.");
         }
 
         bd.setStatus("OPEN");
         bd.setClosedAt(null);
         bd.setRemarks(remarks);
 
-        BusinessDate saved = businessDateRepository.save(bd);
+        BusinessDate saved = saveLifecycleChange(bd);
 
         auditLogService.log(
                 "REOPEN_BUSINESS_DATE",
@@ -241,6 +250,15 @@ public class BusinessDateService {
         );
 
         return saved;
+    }
+
+    private BusinessDate saveLifecycleChange(BusinessDate businessDate) {
+        try {
+            return businessDateRepository.saveAndFlush(businessDate);
+        } catch (DataIntegrityViolationException exception) {
+            throw new ResourceConflictException(
+                    "Business Date lifecycle changed concurrently. Refresh and retry.");
+        }
     }
 
     private void validateBusinessDateLifecycleRole() {

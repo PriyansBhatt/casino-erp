@@ -2,6 +2,7 @@ package com.casino.casinoerp;
 
 import com.casino.casinoerp.entity.BusinessDate;
 import com.casino.casinoerp.entity.BusinessDateHealth;
+import com.casino.casinoerp.exception.ResourceConflictException;
 import com.casino.casinoerp.repository.BusinessDateRepository;
 import com.casino.casinoerp.security.Role;
 import com.casino.casinoerp.service.AuditLogService;
@@ -10,6 +11,7 @@ import com.casino.casinoerp.service.BusinessDateValidationService;
 import com.casino.casinoerp.service.CurrentUserRoleService;
 import com.casino.casinoerp.service.RolePermissionService;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -27,6 +29,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class BusinessDateServiceTests {
@@ -112,16 +115,177 @@ class BusinessDateServiceTests {
         businessDate.setBusinessDate(date);
         businessDate.setStatus("OPEN");
         when(currentRole.getCurrentRole()).thenReturn(Optional.of(Role.SUPER_ADMIN));
-        when(repository.findByBusinessDate(date)).thenReturn(Optional.of(businessDate));
+        when(repository.findByBusinessDateForUpdate(date)).thenReturn(Optional.of(businessDate));
         when(validation.validateCloseRequirements(date)).thenReturn(List.of());
-        when(repository.save(any(BusinessDate.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(repository.saveAndFlush(any(BusinessDate.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         BusinessDate closed = service.closeBusinessDate(date);
 
         assertThat(closed.getStatus()).isEqualTo("CLOSED");
         assertThat(closed.getClosedAt()).isNotNull();
         verify(validation).validateCloseRequirements(date);
-        verify(repository).save(businessDate);
+        verify(repository).acquireLifecycleLock();
+        verify(repository).saveAndFlush(businessDate);
+    }
+
+    @Test
+    void opensBusinessDateUnderLifecycleLock() {
+        BusinessDateRepository repository = mock(BusinessDateRepository.class);
+        AuditLogService audit = mock(AuditLogService.class);
+        CurrentUserRoleService currentRole = mock(CurrentUserRoleService.class);
+        BusinessDateService service = new BusinessDateService(repository,
+                mock(BusinessDateValidationService.class), audit,
+                new RolePermissionService(), currentRole, fixedClock());
+        LocalDate date = LocalDate.of(2026, 9, 7);
+        when(currentRole.getCurrentRole()).thenReturn(Optional.of(Role.SUPER_ADMIN));
+        when(repository.findByStatus("OPEN")).thenReturn(List.of());
+        when(repository.findByBusinessDate(date)).thenReturn(Optional.empty());
+        when(repository.saveAndFlush(any(BusinessDate.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        BusinessDate opened = service.openBusinessDate(date, "test");
+
+        assertThat(opened.getStatus()).isEqualTo("OPEN");
+        assertThat(opened.getClosedAt()).isNull();
+        assertThat(opened.getOpenedAt()).isNotNull();
+        verify(repository).acquireLifecycleLock();
+        verify(audit).log("OPEN_BUSINESS_DATE", "BUSINESS_DATE", null, null,
+                "Business date opened: 2026-09-07");
+    }
+
+    @Test
+    void reopensBusinessDateUnderLifecycleAndRowLocks() {
+        LocalDate date = LocalDate.of(2026, 9, 6);
+        BusinessDateRepository repository = mock(BusinessDateRepository.class);
+        CurrentUserRoleService currentRole = mock(CurrentUserRoleService.class);
+        BusinessDate closed = openDate(2026, 9, 6);
+        closed.setStatus("CLOSED");
+        closed.setClosedAt(LocalDateTime.of(2026, 9, 7, 6, 0));
+        when(currentRole.getCurrentRole()).thenReturn(Optional.of(Role.DIRECTOR));
+        when(repository.findByStatus("OPEN")).thenReturn(List.of());
+        when(repository.findByBusinessDateForUpdate(date)).thenReturn(Optional.of(closed));
+        when(repository.saveAndFlush(closed)).thenReturn(closed);
+        BusinessDateService service = new BusinessDateService(repository,
+                mock(BusinessDateValidationService.class), mock(AuditLogService.class),
+                new RolePermissionService(), currentRole, fixedClock());
+
+        BusinessDate reopened = service.reopenBusinessDate(date, "review");
+
+        assertThat(reopened.getStatus()).isEqualTo("OPEN");
+        assertThat(reopened.getClosedAt()).isNull();
+        assertThat(reopened.getRemarks()).isEqualTo("review");
+        verify(repository).acquireLifecycleLock();
+        verify(repository).findByBusinessDateForUpdate(date);
+    }
+
+    @Test
+    void existingOpenDateProducesDeterministicConflictWithoutAudit() {
+        BusinessDateRepository repository = mock(BusinessDateRepository.class);
+        AuditLogService audit = mock(AuditLogService.class);
+        CurrentUserRoleService currentRole = mock(CurrentUserRoleService.class);
+        when(currentRole.getCurrentRole()).thenReturn(Optional.of(Role.SUPER_ADMIN));
+        when(repository.findByStatus("OPEN")).thenReturn(List.of(openDate(2026, 9, 7)));
+        BusinessDateService service = new BusinessDateService(repository,
+                mock(BusinessDateValidationService.class), audit,
+                new RolePermissionService(), currentRole, fixedClock());
+
+        assertThatThrownBy(() -> service.openBusinessDate(LocalDate.of(2026, 9, 8), null))
+                .isInstanceOf(ResourceConflictException.class)
+                .hasMessage("Another business date is already OPEN.");
+        verify(repository).acquireLifecycleLock();
+        verifyNoInteractions(audit);
+    }
+
+    @Test
+    void duplicateOpenDateProducesDeterministicConflict() {
+        LocalDate date = LocalDate.of(2026, 9, 7);
+        BusinessDateRepository repository = mock(BusinessDateRepository.class);
+        CurrentUserRoleService currentRole = mock(CurrentUserRoleService.class);
+        when(currentRole.getCurrentRole()).thenReturn(Optional.of(Role.SUPER_ADMIN));
+        when(repository.findByStatus("OPEN")).thenReturn(List.of());
+        when(repository.findByBusinessDate(date)).thenReturn(Optional.of(openDate(2026, 9, 7)));
+        BusinessDateService service = new BusinessDateService(repository,
+                mock(BusinessDateValidationService.class), mock(AuditLogService.class),
+                new RolePermissionService(), currentRole, fixedClock());
+
+        assertThatThrownBy(() -> service.openBusinessDate(date, null))
+                .isInstanceOf(ResourceConflictException.class)
+                .hasMessage("Business date already exists.");
+    }
+
+    @Test
+    void reopenConflictsWhenSerializedPredecessorHasOpenedAnotherDate() {
+        BusinessDateRepository repository = mock(BusinessDateRepository.class);
+        AuditLogService audit = mock(AuditLogService.class);
+        CurrentUserRoleService currentRole = mock(CurrentUserRoleService.class);
+        when(currentRole.getCurrentRole()).thenReturn(Optional.of(Role.DIRECTOR));
+        when(repository.findByStatus("OPEN")).thenReturn(List.of(openDate(2026, 9, 7)));
+        BusinessDateService service = new BusinessDateService(repository,
+                mock(BusinessDateValidationService.class), audit,
+                new RolePermissionService(), currentRole, fixedClock());
+
+        assertThatThrownBy(() -> service.reopenBusinessDate(LocalDate.of(2026, 9, 6), "review"))
+                .isInstanceOf(ResourceConflictException.class)
+                .hasMessage("Another business date is already OPEN.");
+        verify(repository).acquireLifecycleLock();
+        verifyNoInteractions(audit);
+    }
+
+    @Test
+    void duplicateReopenConflictsAfterSerializedPredecessorReopenedSameDate() {
+        LocalDate date = LocalDate.of(2026, 9, 6);
+        BusinessDateRepository repository = mock(BusinessDateRepository.class);
+        AuditLogService audit = mock(AuditLogService.class);
+        CurrentUserRoleService currentRole = mock(CurrentUserRoleService.class);
+        when(currentRole.getCurrentRole()).thenReturn(Optional.of(Role.DIRECTOR));
+        when(repository.findByStatus("OPEN")).thenReturn(List.of(openDate(2026, 9, 6)));
+        BusinessDateService service = new BusinessDateService(repository,
+                mock(BusinessDateValidationService.class), audit,
+                new RolePermissionService(), currentRole, fixedClock());
+
+        assertThatThrownBy(() -> service.reopenBusinessDate(date, "duplicate"))
+                .isInstanceOf(ResourceConflictException.class)
+                .hasMessage("Another business date is already OPEN.");
+        verify(repository).acquireLifecycleLock();
+        verifyNoInteractions(audit);
+    }
+
+    @Test
+    void databaseInvariantFailureBecomesBusinessConflict() {
+        BusinessDateRepository repository = mock(BusinessDateRepository.class);
+        CurrentUserRoleService currentRole = mock(CurrentUserRoleService.class);
+        when(currentRole.getCurrentRole()).thenReturn(Optional.of(Role.SUPER_ADMIN));
+        when(repository.findByStatus("OPEN")).thenReturn(List.of());
+        when(repository.findByBusinessDate(any())).thenReturn(Optional.empty());
+        when(repository.saveAndFlush(any())).thenThrow(new DataIntegrityViolationException("constraint"));
+        BusinessDateService service = new BusinessDateService(repository,
+                mock(BusinessDateValidationService.class), mock(AuditLogService.class),
+                new RolePermissionService(), currentRole, fixedClock());
+
+        assertThatThrownBy(() -> service.openBusinessDate(LocalDate.of(2026, 9, 8), null))
+                .isInstanceOf(ResourceConflictException.class)
+                .hasMessage("Business Date lifecycle changed concurrently. Refresh and retry.");
+    }
+
+    @Test
+    void failedClosePreservesOpenStateAndDoesNotAudit() {
+        LocalDate date = LocalDate.of(2026, 9, 7);
+        BusinessDateRepository repository = mock(BusinessDateRepository.class);
+        BusinessDateValidationService validation = mock(BusinessDateValidationService.class);
+        AuditLogService audit = mock(AuditLogService.class);
+        CurrentUserRoleService currentRole = mock(CurrentUserRoleService.class);
+        BusinessDate open = openDate(2026, 9, 7);
+        when(currentRole.getCurrentRole()).thenReturn(Optional.of(Role.SUPER_ADMIN));
+        when(repository.findByBusinessDateForUpdate(date)).thenReturn(Optional.of(open));
+        when(validation.validateCloseRequirements(date)).thenReturn(List.of("table still open"));
+        BusinessDateService service = new BusinessDateService(repository, validation, audit,
+                new RolePermissionService(), currentRole, fixedClock());
+
+        assertThatThrownBy(() -> service.closeBusinessDate(date))
+                .isInstanceOf(RuntimeException.class).hasMessage("table still open");
+        assertThat(open.getStatus()).isEqualTo("OPEN");
+        assertThat(open.getClosedAt()).isNull();
+        verifyNoInteractions(audit);
     }
 
     private BusinessDateService service(BusinessDateRepository repository) {
