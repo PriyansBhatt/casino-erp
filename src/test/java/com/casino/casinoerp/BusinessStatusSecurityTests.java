@@ -4,6 +4,7 @@ import com.casino.casinoerp.config.JwtAuthenticationFilter;
 import com.casino.casinoerp.config.SecurityConfig;
 import com.casino.casinoerp.controller.BusinessStatusController;
 import com.casino.casinoerp.dto.OperationalStatusResponse;
+import com.casino.casinoerp.entity.BusinessDateHealth;
 import com.casino.casinoerp.service.JwtService;
 import com.casino.casinoerp.service.OperationalStatusService;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -34,10 +35,13 @@ class BusinessStatusSecurityTests {
     @ValueSource(strings = {"RECEPTIONIST", "CASHIER", "DEALER", "PIT_SUPERVISOR", "DIRECTOR", "SUPER_ADMIN"})
     void operationalRolesCanReadStatus(String role) throws Exception {
         when(service.current()).thenReturn(new OperationalStatusResponse(LocalDate.of(2026, 9, 2),
-                true, false, null, LocalDateTime.of(2026, 9, 4, 12, 0)));
+                LocalDate.of(2026, 9, 7), true, BusinessDateHealth.STALE, true, 5,
+                "The OPEN Business Date is earlier than the expected Business Date.",
+                false, null, LocalDateTime.of(2026, 9, 4, 12, 0)));
         mockMvc.perform(get("/api/business-status/current").with(user(role.toLowerCase()).roles(role)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.businessDate").value("2026-09-02"))
+                .andExpect(jsonPath("$.data.businessDateHealth").value("STALE"))
                 .andExpect(jsonPath("$.data.systemLocked").value(false));
     }
 }

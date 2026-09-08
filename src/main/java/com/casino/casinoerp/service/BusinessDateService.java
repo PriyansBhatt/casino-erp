@@ -1,15 +1,19 @@
 package com.casino.casinoerp.service;
 
 import com.casino.casinoerp.entity.BusinessDate;
+import com.casino.casinoerp.entity.BusinessDateHealth;
+import com.casino.casinoerp.dto.BusinessDateHealthResponse;
 import com.casino.casinoerp.repository.BusinessDateRepository;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 
@@ -26,29 +30,35 @@ public class BusinessDateService {
     private final AuditLogService auditLogService;
     private final RolePermissionService rolePermissionService;
     private final CurrentUserRoleService currentUserRoleService;
+    private final Clock clock;
 
     public BusinessDateService(
             BusinessDateRepository businessDateRepository,
             @Lazy BusinessDateValidationService validationService,
             @Lazy AuditLogService auditLogService,
             RolePermissionService rolePermissionService,
-            CurrentUserRoleService currentUserRoleService) {
+            CurrentUserRoleService currentUserRoleService,
+            Clock clock) {
 
         this.businessDateRepository = businessDateRepository;
         this.validationService = validationService;
         this.auditLogService = auditLogService;
         this.rolePermissionService = rolePermissionService;
         this.currentUserRoleService = currentUserRoleService;
+        this.clock = clock;
     }
 
     public LocalDate getCurrentBusinessDate() {
-        return resolveBusinessDate(LocalDateTime.now());
+        return resolveBusinessDate(currentCasinoDateTime());
     }
 
     public LocalDate resolveBusinessDate(LocalDateTime dateTime) {
         List<BusinessDate> openDates = businessDateRepository.findByStatus("OPEN");
 
-        if (!openDates.isEmpty()) {
+        if (openDates.size() > 1) {
+            throw new IllegalStateException("Business Date state is inconsistent: multiple OPEN dates exist.");
+        }
+        if (openDates.size() == 1) {
             return openDates.get(0).getBusinessDate();
         }
 
@@ -58,6 +68,45 @@ public class BusinessDateService {
     public LocalDate resolveAttendanceBusinessDate(Instant attendanceTime) {
         LocalDateTime casinoTime = LocalDateTime.ofInstant(attendanceTime, CASINO_TIME_ZONE);
         return calculateBusinessDate(casinoTime);
+    }
+
+    public LocalDate getExpectedBusinessDate() {
+        return calculateBusinessDate(currentCasinoDateTime());
+    }
+
+    public LocalDateTime currentCasinoDateTime() {
+        return LocalDateTime.ofInstant(clock.instant(), CASINO_TIME_ZONE);
+    }
+
+    public BusinessDateHealthResponse getHealth() {
+        LocalDate expected = getExpectedBusinessDate();
+        List<BusinessDate> openDates = businessDateRepository.findByStatus("OPEN");
+
+        if (openDates.isEmpty()) {
+            return new BusinessDateHealthResponse(null, expected, BusinessDateHealth.MISSING,
+                    false, 0, "No operational Business Date is OPEN.");
+        }
+        if (openDates.size() > 1) {
+            return new BusinessDateHealthResponse(null, expected, BusinessDateHealth.INCONSISTENT,
+                    false, 0, "Multiple operational Business Dates are OPEN.");
+        }
+
+        LocalDate open = openDates.get(0).getBusinessDate();
+        if (open == null) {
+            return new BusinessDateHealthResponse(null, expected, BusinessDateHealth.INCONSISTENT,
+                    false, 0, "The OPEN Business Date has no business-date value.");
+        }
+        if (open.isAfter(expected)) {
+            return new BusinessDateHealthResponse(open, expected, BusinessDateHealth.INCONSISTENT,
+                    false, 0, "The OPEN Business Date is later than the expected Business Date.");
+        }
+        if (open.isBefore(expected)) {
+            long staleByDays = ChronoUnit.DAYS.between(open, expected);
+            return new BusinessDateHealthResponse(open, expected, BusinessDateHealth.STALE,
+                    true, staleByDays, "The OPEN Business Date is earlier than the expected Business Date.");
+        }
+        return new BusinessDateHealthResponse(open, expected, BusinessDateHealth.HEALTHY,
+                false, 0, null);
     }
 
     private LocalDate calculateBusinessDate(LocalDateTime dateTime) {
@@ -90,7 +139,9 @@ public class BusinessDateService {
         if (openDates.isEmpty()) {
             return Optional.empty();
         }
-
+        if (openDates.size() > 1) {
+            throw new IllegalStateException("Business Date state is inconsistent: multiple OPEN dates exist.");
+        }
         return Optional.of(openDates.get(0));
     }
 
@@ -109,7 +160,7 @@ public class BusinessDateService {
         BusinessDate bd = new BusinessDate();
         bd.setBusinessDate(businessDate);
         bd.setStatus("OPEN");
-        bd.setOpenedAt(LocalDateTime.now());
+        bd.setOpenedAt(currentCasinoDateTime());
         bd.setRemarks(remarks);
 
         BusinessDate saved = businessDateRepository.save(bd);
@@ -144,7 +195,7 @@ public class BusinessDateService {
         }
 
         bd.setStatus("CLOSED");
-        bd.setClosedAt(LocalDateTime.now());
+        bd.setClosedAt(currentCasinoDateTime());
 
         BusinessDate saved = businessDateRepository.save(bd);
 

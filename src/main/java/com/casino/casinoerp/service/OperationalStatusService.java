@@ -1,11 +1,8 @@
 package com.casino.casinoerp.service;
 
 import com.casino.casinoerp.dto.OperationalStatusResponse;
-import com.casino.casinoerp.entity.BusinessDate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.time.LocalDateTime;
 
 @Service
 public class OperationalStatusService {
@@ -19,13 +16,18 @@ public class OperationalStatusService {
 
     @Transactional(readOnly = true)
     public OperationalStatusResponse current() {
-        var open = businessDates.getCurrentOpenBusinessDate();
+        var health = businessDates.getHealth();
         return new OperationalStatusResponse(
-                open.map(BusinessDate::getBusinessDate).orElse(null),
-                open.isPresent(),
+                health.businessDate(),
+                health.expectedBusinessDate(),
+                health.businessDate() != null,
+                health.health(),
+                health.stale(),
+                health.staleByDays(),
+                health.lifecycleWarning(),
                 systemLock.isSystemLocked(),
                 lockReason(),
-                LocalDateTime.now());
+                businessDates.currentCasinoDateTime());
     }
 
     private String lockReason() {
