@@ -58,6 +58,7 @@ public class PitTableCustomerAssignmentService {
     @Transactional
     public PitTablePlayerResponse assign(UUID tableId, AssignPitTableCustomerRequest request) {
         validateActorAndOperations("assign customers to Pit Tables");
+        businessDateService.validateNewOperationalMutationAllowed();
         LocalDate businessDate = validateOpenBusinessDateAndLock();
         Customer customer = requiredActiveCustomer(request.customerId());
         CustomerSession session = requiredOpenSession(request.customerSessionId(), customer.getId(), businessDate);
@@ -91,6 +92,7 @@ public class PitTableCustomerAssignmentService {
     public PitTablePlayerResponse leave(UUID tableId, UUID assignmentId,
             LeavePitTableCustomerRequest request) {
         validateActorAndOperations("remove customers from Pit Tables");
+        businessDateService.validateSettlementMutationAllowed();
         validateOpenBusinessDateAndLock();
         PitTableCustomerAssignment preview = repository.findById(assignmentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Pit table customer assignment not found."));

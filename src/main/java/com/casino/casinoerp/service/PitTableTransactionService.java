@@ -35,6 +35,7 @@ public class PitTableTransactionService {
 
     public PitTableTransaction save(PitTableTransaction transaction) {
 
+        businessDateService.validateNewOperationalMutationAllowed();
         businessDateService.validateBusinessDateIsOpen();
         
         String role = currentUserRoleService.getCurrentUserRole();

@@ -87,6 +87,7 @@ class PitTableServiceTests {
         assertThat(result.getStatus()).isEqualTo("CLOSED");
         assertThat(result.getClosingFloat()).isEqualByComparingTo("95000");
         assertThat(result.getClosedAt()).isNotNull();
+        verify(businessDateService).validateSettlementMutationAllowed();
         verify(auditLogService).log(eq("CLOSE_PIT_TABLE"), eq("PIT_TABLE"),
                 eq(table.getId()), any(), contains("T-BAC-10"));
     }

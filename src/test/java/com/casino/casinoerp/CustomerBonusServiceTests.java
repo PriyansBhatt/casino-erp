@@ -54,6 +54,7 @@ class CustomerBonusServiceTests {
         assertThat(response.status()).isEqualTo(CustomerBonusStatus.APPROVED);
         assertThat(response.createdBy().id()).isEqualTo(actorId);
         assertThat(response.approvedBy().id()).isEqualTo(actorId);
+        verify(dates).validateNewOperationalMutationAllowed();
         verify(bonuses).save(argThat(value -> value.getBonusCode().startsWith("BON-20260808-")
                 && value.getBusinessDate().equals(businessDate)
                 && value.getCreatedAt() != null && value.getApprovedAt() != null));

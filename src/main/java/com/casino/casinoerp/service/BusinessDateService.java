@@ -25,6 +25,8 @@ public class BusinessDateService {
 
     private static final LocalTime BUSINESS_DAY_START =
             LocalTime.of(9, 0);
+    private static final LocalTime STALE_OPERATION_GRACE_END =
+            LocalTime.of(12, 30);
     private static final ZoneId CASINO_TIME_ZONE =
             ZoneId.of("Asia/Kathmandu");
 
@@ -110,6 +112,43 @@ public class BusinessDateService {
         }
         return new BusinessDateHealthResponse(open, expected, BusinessDateHealth.HEALTHY,
                 false, 0, null);
+    }
+
+    public void validateNewOperationalMutationAllowed() {
+        BusinessDateHealthResponse health = getHealth();
+        switch (health.health()) {
+            case HEALTHY -> { }
+            case STALE -> {
+                if (health.staleByDays() != 1
+                        || currentCasinoDateTime().toLocalTime().isAfter(STALE_OPERATION_GRACE_END)) {
+                    throw staleOperationConflict(health.businessDate());
+                }
+            }
+            case MISSING -> throw new ResourceConflictException(
+                    "No operational Business Date is OPEN. New operations are disabled.");
+            case INCONSISTENT -> throw new ResourceConflictException(
+                    "Business Date state is inconsistent. New operations are disabled until it is resolved.");
+        }
+    }
+
+    public void validateSettlementMutationAllowed() {
+        BusinessDateHealthResponse health = getHealth();
+        switch (health.health()) {
+            case HEALTHY, STALE -> { }
+            case MISSING -> throw new ResourceConflictException(
+                    "No operational Business Date is OPEN. Settlement operations requiring an OPEN Business Date are disabled.");
+            case INCONSISTENT -> throw new ResourceConflictException(
+                    "Business Date state is inconsistent. Settlement operations are disabled until it is resolved.");
+        }
+    }
+
+    public LocalTime getStaleOperationGraceEnd() {
+        return STALE_OPERATION_GRACE_END;
+    }
+
+    private ResourceConflictException staleOperationConflict(LocalDate openBusinessDate) {
+        return new ResourceConflictException("Operational Business Date " + openBusinessDate
+                + " is stale. New operations are disabled until the Business Date is resolved.");
     }
 
     private LocalDate calculateBusinessDate(LocalDateTime dateTime) {

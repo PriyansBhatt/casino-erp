@@ -33,6 +33,7 @@ public class CustomerServiceRecordService {
 
     public CustomerServiceRecord save(CustomerServiceRecord record) {
 
+        businessDateService.validateNewOperationalMutationAllowed();
         businessDateService.validateBusinessDateIsOpen();
         
         String role = currentUserRoleService.getCurrentUserRole();

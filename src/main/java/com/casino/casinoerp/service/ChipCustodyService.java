@@ -59,6 +59,7 @@ public class ChipCustodyService {
         if (!permissions.canInitializeChipCustody(currentRoles.getCurrentRole().orElse(null))) {
             throw new RuntimeException("Access denied. Only Super Admin can initialize cage chip inventory.");
         }
+        businessDates.validateNewOperationalMutationAllowed();
         businessDates.validateBusinessDateIsOpen();
         if (systemLock.isSystemLocked()) throw new ResourceConflictException("System is locked. Chip custody movements are not allowed.");
         String key = request.idempotencyKey().trim();
@@ -85,6 +86,7 @@ public class ChipCustodyService {
     public ChipCustodyMovement recordBuyIn(UUID transactionId, UUID sessionId,
             LocalDate businessDate, Map<Integer, Long> denominations, BigDecimal expectedTotal,
             UUID actorId) {
+        businessDates.validateNewOperationalMutationAllowed();
         return transfer(ChipCustodyMovementType.BUY_IN_ISSUE,
                 ChipCustodyLocationType.CAGE, null, ChipCustodyLocationType.CUSTOMER_SESSION, sessionId,
                 denominations, "CHIP_BUY_IN", transactionId, sessionId, null,
@@ -95,6 +97,7 @@ public class ChipCustodyService {
     public ChipCustodyMovement recordCashOut(UUID transactionId, UUID sessionId,
             LocalDate businessDate, Map<Integer, Long> denominations, BigDecimal expectedTotal,
             UUID actorId) {
+        businessDates.validateSettlementMutationAllowed();
         return transfer(ChipCustodyMovementType.CASH_OUT_RETURN,
                 ChipCustodyLocationType.CUSTOMER_SESSION, sessionId, ChipCustodyLocationType.CAGE, null,
                 denominations, "CHIP_CASH_OUT", transactionId, sessionId, null,
@@ -107,6 +110,7 @@ public class ChipCustodyService {
         if (!permissions.canCorrectLegacyChipCustody(currentRoles.getCurrentRole().orElse(null))) {
             throw new RuntimeException("Access denied. Only Super Admin can correct legacy session custody.");
         }
+        businessDates.validateSettlementMutationAllowed();
         businessDates.validateBusinessDateIsOpen();
         if (systemLock.isSystemLocked()) {
             throw new ResourceConflictException(
@@ -186,6 +190,7 @@ public class ChipCustodyService {
     @Transactional
     public ChipCustodyMovementResponse issueTableFloat(UUID tableId, ChipCustodyTransferRequest request) {
         validatePitCustodyRole();
+        businessDates.validateNewOperationalMutationAllowed();
         LocalDate date = currentWritableBusinessDate();
         PitTable table = validateOpenTableForUpdate(tableId, date);
         String key = request.idempotencyKey().trim();
@@ -219,6 +224,7 @@ public class ChipCustodyService {
     @Transactional
     public ChipCustodyMovementResponse returnTableFloat(UUID tableId, ChipCustodyTransferRequest request) {
         validatePitCustodyRole();
+        businessDates.validateSettlementMutationAllowed();
         LocalDate date = currentWritableBusinessDate();
         validateOpenTableForUpdate(tableId, date);
         return response(transfer(ChipCustodyMovementType.TABLE_FLOAT_RETURN,
@@ -231,6 +237,7 @@ public class ChipCustodyService {
     public ChipCustodyMovementResponse moveCustomerChipsToTable(
             UUID tableId, UUID sessionId, ChipCustodyTransferRequest request) {
         validatePitTransactionRole();
+        businessDates.validateNewOperationalMutationAllowed();
         TransferContext context = validateCustomerTableTransferForUpdate(tableId, sessionId);
         return response(transfer(ChipCustodyMovementType.CUSTOMER_TO_TABLE,
                 ChipCustodyLocationType.CUSTOMER_SESSION, sessionId,
@@ -244,6 +251,7 @@ public class ChipCustodyService {
     public ChipCustodyMovementResponse returnTableChipsToCustomer(
             UUID tableId, UUID sessionId, ChipCustodyTransferRequest request) {
         validatePitTransactionRole();
+        businessDates.validateSettlementMutationAllowed();
         TransferContext context = validateCustomerTableTransferForUpdate(tableId, sessionId);
         return response(recordTableToCustomer(context.assignment(), request.denominations(),
                 request.idempotencyKey().trim(), authenticatedUsers.getRequiredUser().getId(),
@@ -253,6 +261,7 @@ public class ChipCustodyService {
     @Transactional
     public void settleAssignmentForLeave(PitTableCustomerAssignment assignment,
             Map<Integer, Long> returnedDenominations, String idempotencyKey, UUID actorId) {
+        businessDates.validateSettlementMutationAllowed();
         TransferContext context = validateCustomerTableTransferForUpdate(
                 assignment.getPitTableId(), assignment.getCustomerSessionId());
         if (!context.assignment().getId().equals(assignment.getId())) {

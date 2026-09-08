@@ -89,6 +89,7 @@ public class ChipBuyInService {
             return toResponse(existing);
         }
 
+        businessDateService.validateNewOperationalMutationAllowed();
         businessDateService.validateBusinessDateIsOpen();
 
         if (systemLockService.isSystemLocked()) {

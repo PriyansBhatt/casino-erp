@@ -66,6 +66,7 @@ class ChipCashOutServiceTests {
         assertThat(response.cashOutCode()).startsWith("CO-20260808-");
         assertThat(response.businessDate()).isEqualTo(businessDate);
         assertThat(response.createdBy().id()).isEqualTo(actorId);
+        verify(businessDateService).validateSettlementMutationAllowed();
         verify(repository).save(argThat(value -> value.getCashOutCode() != null
                 && actorId.equals(value.getCreatedBy()) && value.getCreatedAt() != null
                 && Boolean.TRUE.equals(value.getSameCustomerVerified())

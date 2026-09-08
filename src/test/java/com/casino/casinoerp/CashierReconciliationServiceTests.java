@@ -99,6 +99,7 @@ class CashierReconciliationServiceTests {
         var replay = service.submit(request);
 
         assertThat(replay.id()).isEqualTo(first.id());
+        verify(businessDates, times(2)).validateSettlementMutationAllowed();
         verify(repository, times(1)).save(any());
         verify(audit, times(1)).log(eq("RECONCILIATION_SUBMITTED"), anyString(), any(), eq(actorId), anyString());
     }

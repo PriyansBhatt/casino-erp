@@ -109,6 +109,7 @@ class PitTableOperationServiceTests {
         assertEquals(CURRENT_DATE, response.businessDate());
         assertEquals(new BigDecimal("100000"), response.openingFloat());
         assertEquals("CLOSED", historical.getStatus());
+        verify(businessDates).validateNewOperationalMutationAllowed();
         verify(custody).issueTableFloat(org.mockito.ArgumentMatchers.eq(OPERATION_ID), any());
         verify(audit).log(org.mockito.ArgumentMatchers.eq("OPEN_PIT_TABLE_OPERATION"),
                 org.mockito.ArgumentMatchers.eq("PIT_TABLE"),

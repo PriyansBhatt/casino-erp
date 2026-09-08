@@ -69,6 +69,7 @@ class ChipBuyInServiceTests {
         assertThat(response.businessDate()).isEqualTo(businessDate);
         assertThat(response.createdAt()).isNotNull();
         assertThat(response.createdBy().id()).isEqualTo(actorId);
+        verify(businessDateService).validateNewOperationalMutationAllowed();
 
         verify(walletTransactionService).save(argThat(tx ->
                 customerId.equals(tx.getCustomerId())
@@ -81,6 +82,17 @@ class ChipBuyInServiceTests {
                         && "idem-1".equals(buyIn.getIdempotencyKey())
                         && buyIn.getHighValueAlert() == null
                         && buyIn.getSupervisorApprovedBy() == null));
+    }
+
+    @Test void staleBusinessDateBlocksBuyInBeforeWrites() {
+        doThrow(new ResourceConflictException("Operational Business Date is stale."))
+                .when(businessDateService).validateNewOperationalMutationAllowed();
+
+        assertThatThrownBy(() -> service.create(request(PaymentMode.CASH, null)))
+                .isInstanceOf(ResourceConflictException.class)
+                .hasMessageContaining("stale");
+        verify(buyInRepository, never()).save(any());
+        verifyNoInteractions(walletTransactionService);
     }
 
     @Test void submittedReconciliationBlocksAllPaymentModesBeforeWrites() {

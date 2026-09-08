@@ -64,6 +64,7 @@ public class PitTableOperationService {
     @Transactional
     public PitTableResponse open(UUID physicalTableId, OpenPitTableOperationRequest request) {
         validateRole();
+        businessDates.validateNewOperationalMutationAllowed();
         if (systemLock.isSystemLocked()) {
             throw new ResourceConflictException("System is locked. Pit table operations are not allowed.");
         }

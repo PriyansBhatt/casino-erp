@@ -33,6 +33,7 @@ public class HotelBookingService {
         validateRole(); validateDates(request.checkInDate(), request.checkOutDate());
         HotelBooking replay = bookings.findByIdempotencyKey(request.idempotencyKey().trim()).orElse(null);
         if (replay != null) { validateReplay(replay, request); return response(replay); }
+        dates.validateNewOperationalMutationAllowed();
         dates.validateBusinessDateIsOpen(); LocalDate businessDate = dates.getCurrentBusinessDate(); validateUnlocked();
         Customer customer = customer(request.customerId());
         CustomerSession session = validateSession(request.customerSessionId(), customer.getId(), businessDate);
@@ -69,7 +70,14 @@ public class HotelBookingService {
 
     @Transactional
     public HotelBookingResponse updateStatus(UUID id, UpdateHotelBookingStatusRequest request) {
-        validateRole(); validateUnlocked(); HotelBooking value = required(id);
+        validateRole();
+        if (request.status() == HotelBookingStatus.BOOKED
+                || request.status() == HotelBookingStatus.CHECKED_IN) {
+            dates.validateNewOperationalMutationAllowed();
+        } else {
+            dates.validateSettlementMutationAllowed();
+        }
+        validateUnlocked(); HotelBooking value = required(id);
         HotelBookingStatus next = request.status();
         boolean valid = (value.getStatus()==HotelBookingStatus.APPROVED && next==HotelBookingStatus.BOOKED)
                 || (value.getStatus()==HotelBookingStatus.BOOKED && next==HotelBookingStatus.CHECKED_IN)
@@ -85,7 +93,10 @@ public class HotelBookingService {
     }
 
     private HotelBookingResponse decide(UUID id, boolean approved) {
-        validateRole(); validateUnlocked(); HotelBooking value=required(id);
+        validateRole();
+        if (approved) dates.validateNewOperationalMutationAllowed();
+        else dates.validateSettlementMutationAllowed();
+        validateUnlocked(); HotelBooking value=required(id);
         if (value.getStatus()!=HotelBookingStatus.REQUESTED) throw new ResourceConflictException("Only a requested booking can be approved or rejected.");
         User actor=authenticatedUsers.getRequiredUser(); LocalDateTime now=LocalDateTime.now();
         value.setStatus(approved?HotelBookingStatus.APPROVED:HotelBookingStatus.REJECTED);

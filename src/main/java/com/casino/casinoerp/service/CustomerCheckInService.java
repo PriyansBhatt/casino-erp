@@ -42,6 +42,7 @@ public class CustomerCheckInService {
 
     public CustomerCheckIn save(CustomerCheckIn checkIn) {
 
+        businessDateService.validateNewOperationalMutationAllowed();
         businessDateService.validateBusinessDateIsOpen();
 
         String role = currentUserRoleService.getCurrentUserRole();

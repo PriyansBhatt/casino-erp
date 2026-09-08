@@ -42,6 +42,7 @@ public class CustomerWalletService {
 
     public CustomerWallet save(CustomerWallet wallet) {
 
+        businessDateService.validateNewOperationalMutationAllowed();
         businessDateService.validateBusinessDateIsOpen();
 
         String role = currentUserRoleService.getCurrentUserRole();

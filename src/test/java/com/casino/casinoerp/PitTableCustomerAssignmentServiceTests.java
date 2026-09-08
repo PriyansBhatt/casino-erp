@@ -74,6 +74,7 @@ class PitTableCustomerAssignmentServiceTests {
         assertThat(response.customerId()).isEqualTo(customerId);
         assertThat(response.pitTableId()).isEqualTo(tableId);
         assertThat(response.status()).isEqualTo(PitTableCustomerAssignmentStatus.ACTIVE);
+        verify(businessDateService).validateNewOperationalMutationAllowed();
         verify(auditService).log(eq("ASSIGN_PIT_TABLE_CUSTOMER"), any(), any(), eq(actorId), any());
     }
 
@@ -130,6 +131,7 @@ class PitTableCustomerAssignmentServiceTests {
 
         assertThat(response.status()).isEqualTo(PitTableCustomerAssignmentStatus.LEFT);
         assertThat(response.leftAt()).isNotNull();
+        verify(businessDateService).validateSettlementMutationAllowed();
         verify(repository).save(active);
         verify(custodyService).settleAssignmentForLeave(eq(active), eq(Map.of()),
                 eq("ASSIGNMENT_SETTLEMENT:leave-key"), eq(actorId));

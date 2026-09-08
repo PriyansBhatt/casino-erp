@@ -83,6 +83,7 @@ public class ChipCashOutService {
             return toResponse(existing);
         }
 
+        businessDateService.validateSettlementMutationAllowed();
         validatePositiveAmounts(request);
         if (request.cashPaid().compareTo(request.totalChipValueReturned()) != 0) {
             throw new IllegalArgumentException("Cash paid must equal total chip value returned.");

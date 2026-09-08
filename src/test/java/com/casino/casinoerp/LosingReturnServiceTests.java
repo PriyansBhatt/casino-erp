@@ -45,7 +45,7 @@ class LosingReturnServiceTests {
         var value=service.eligibility(customerId); assertThat(value.eligible()).isFalse(); assertThat(value.availableReturnAmount()).isZero(); }
     @Test void createPersistsServerCalculatedAmountAndAudits(){ when(results.findByCustomerIdAndBusinessDateOrderByCreatedAtAsc(customerId,date)).thenReturn(List.of(result(VerifiedGamingResultType.LOSS,"50000")));
         var value=service.create(new CreateLosingReturnRequest(customerId,sessionId,"key",null)); assertThat(value.amountPaid()).isEqualByComparingTo("5000"); assertThat(value.paymentMode()).isEqualTo("CASH");
-        verify(reconciliations).validatePostingAllowed(actorId,date); verify(audit).log(eq("CREATE_LOSING_RETURN"),any(),any(),eq(actorId),any()); }
+        verify(dates).validateSettlementMutationAllowed(); verify(reconciliations).validatePostingAllowed(actorId,date); verify(audit).log(eq("CREATE_LOSING_RETURN"),any(),any(),eq(actorId),any()); }
     @Test void submittedReconciliationBlocksBeforePersistence(){ when(results.findByCustomerIdAndBusinessDateOrderByCreatedAtAsc(customerId,date)).thenReturn(List.of(result(VerifiedGamingResultType.LOSS,"50000")));
         doThrow(new ResourceConflictException("Cashier reconciliation has already been submitted for this Business Date.")).when(reconciliations).validatePostingAllowed(actorId,date);
         assertThatThrownBy(()->service.create(new CreateLosingReturnRequest(customerId,sessionId,"key",null))).hasMessageContaining("reconciliation"); verify(repo,never()).save(any()); }

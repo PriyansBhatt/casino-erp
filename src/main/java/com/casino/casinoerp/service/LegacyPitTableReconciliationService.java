@@ -75,6 +75,7 @@ public class LegacyPitTableReconciliationService {
             throw new ResourceConflictException("Pit Table already has a legacy reconciliation resolution.");
         }
 
+        businessDates.validateSettlementMutationAllowed();
         businessDates.validateBusinessDateIsOpen();
         if (systemLock.isSystemLocked()) {
             throw new ResourceConflictException(

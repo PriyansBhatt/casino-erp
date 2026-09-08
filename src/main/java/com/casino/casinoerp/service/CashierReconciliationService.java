@@ -94,6 +94,7 @@ public class CashierReconciliationService {
     @Transactional
     public CashierReconciliationResponse submit(CashierReconciliationRequest request) {
         validateSubmitRole();
+        businessDateService.validateSettlementMutationAllowed();
         if (systemLockService.isSystemLocked()) {
             throw new RuntimeException("System is locked. Cashier reconciliation cannot be submitted.");
         }
@@ -148,6 +149,7 @@ public class CashierReconciliationService {
     @Transactional
     public CashierReconciliationResponse reopen(UUID reconciliationId, String reason) {
         validateReopenRole();
+        businessDateService.validateSettlementMutationAllowed();
         if (systemLockService.isSystemLocked()) {
             throw new RuntimeException("System is locked. Cashier reconciliation cannot be reopened.");
         }

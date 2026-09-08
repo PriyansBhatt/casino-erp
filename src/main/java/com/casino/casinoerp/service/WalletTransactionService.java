@@ -63,6 +63,11 @@ public class WalletTransactionService {
 
     public WalletTransaction save(WalletTransaction transaction) {
 
+        if ("CASH_OUT".equalsIgnoreCase(transaction.getTransactionType())) {
+            businessDateService.validateSettlementMutationAllowed();
+        } else {
+            businessDateService.validateNewOperationalMutationAllowed();
+        }
         businessDateService.validateBusinessDateIsOpen();
 
         if (systemLockService.isSystemLocked()) {

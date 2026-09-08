@@ -94,6 +94,7 @@ public class VerifiedGamingResultService {
             return toResponse(existing, null);
         }
 
+        businessDateService.validateNewOperationalMutationAllowed();
         businessDateService.validateBusinessDateIsOpen();
         if (systemLockService.isSystemLocked()) {
             throw new RuntimeException("System is locked. Verified gaming results are not allowed.");

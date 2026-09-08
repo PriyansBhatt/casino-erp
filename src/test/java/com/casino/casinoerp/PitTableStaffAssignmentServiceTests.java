@@ -69,6 +69,7 @@ class PitTableStaffAssignmentServiceTests {
 
         assertThat(response.staffUserId()).isEqualTo(DEALER_A_ID);
         assertThat(response.assignmentRole()).isEqualTo(PitTableStaffAssignmentRole.DEALER);
+        verify(businessDates).validateNewOperationalMutationAllowed();
         verify(audit, times(1)).log(eq("PIT_STAFF_ASSIGNED"), eq("PIT_TABLE_STAFF_ASSIGNMENT"),
                 any(), eq(ACTOR_ID), any());
     }
@@ -197,6 +198,8 @@ class PitTableStaffAssignmentServiceTests {
         stubResponseUsers(current, user(DEALER_A_ID, "dealer-a", Role.DEALER, "ACTIVE"));
 
         var ended = service.end(TABLE_ID, current.getId(), new EndPitTableStaffAssignmentRequest("End", "end-1"));
+
+        verify(businessDates).validateSettlementMutationAllowed();
         assertThat(ended.active()).isFalse();
         assertThat(current.getEndedAt()).isNotNull();
         assertThat(current.getEndIdempotencyKey()).isEqualTo("end-1");

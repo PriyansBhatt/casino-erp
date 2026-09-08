@@ -89,6 +89,7 @@ public class PitTableStaffAssignmentService {
             return response(replay);
         }
         rejectKeyUsedForEnd(key);
+        businessDates.validateNewOperationalMutationAllowed();
 
         PitTable table = mutationTable(tableId);
         User staff = requireEligibleStaff(request.staffUserId(), request.assignmentRole());
@@ -112,6 +113,7 @@ public class PitTableStaffAssignmentService {
             return response(replay);
         }
         rejectKeyUsedForAssignment(key);
+        businessDates.validateSettlementMutationAllowed();
 
         PitTable table = mutationTable(tableId);
         PitTableStaffAssignment assignment = assignments.findByIdForUpdate(assignmentId)
@@ -150,6 +152,7 @@ public class PitTableStaffAssignmentService {
         if (assignments.findByEndIdempotencyKey(key).isPresent()) {
             throw new ResourceConflictException("Idempotency key has already been used for a different staff operation.");
         }
+        businessDates.validateNewOperationalMutationAllowed();
 
         PitTable table = mutationTable(tableId);
         PitTableStaffAssignment previous = assignments.findByPitTableIdAndAssignmentRoleAndEndedAtIsNull(tableId, role)

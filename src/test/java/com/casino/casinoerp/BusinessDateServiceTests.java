@@ -24,6 +24,7 @@ import java.util.Optional;
 import java.util.TimeZone;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -386,6 +387,78 @@ class BusinessDateServiceTests {
         }
     }
 
+    @Test
+    void healthyBusinessDateAllowsNewAndSettlementMutations() {
+        BusinessDateRepository repository = mock(BusinessDateRepository.class);
+        when(repository.findByStatus("OPEN")).thenReturn(List.of(openDate(2026, 9, 8)));
+        BusinessDateService service = service(repository, clockAt(2026, 9, 8, 18, 0, 0));
+
+        assertThatCode(service::validateNewOperationalMutationAllowed).doesNotThrowAnyException();
+        assertThatCode(service::validateSettlementMutationAllowed).doesNotThrowAnyException();
+    }
+
+    @Test
+    void staleBusinessDateAllowsNewMutationsDuringGraceAndSettlementAfterGrace() {
+        BusinessDateRepository repository = mock(BusinessDateRepository.class);
+        when(repository.findByStatus("OPEN")).thenReturn(List.of(openDate(2026, 9, 7)));
+
+        assertThatCode(() -> service(repository, clockAt(2026, 9, 8, 12, 30, 0))
+                .validateNewOperationalMutationAllowed()).doesNotThrowAnyException();
+        assertThatCode(() -> service(repository, clockAt(2026, 9, 8, 18, 0, 0))
+                .validateSettlementMutationAllowed()).doesNotThrowAnyException();
+    }
+
+    @Test
+    void staleBusinessDateBlocksNewMutationsAfterGrace() {
+        BusinessDateRepository repository = mock(BusinessDateRepository.class);
+        when(repository.findByStatus("OPEN")).thenReturn(List.of(openDate(2026, 9, 7)));
+
+        assertThatThrownBy(() -> service(repository, clockAt(2026, 9, 8, 12, 30, 1))
+                .validateNewOperationalMutationAllowed())
+                .isInstanceOf(ResourceConflictException.class)
+                .hasMessage("Operational Business Date 2026-09-07 is stale. New operations are disabled until the Business Date is resolved.");
+    }
+
+    @Test
+    void multiDayStaleBusinessDateDoesNotReceiveARepeatedDailyGraceWindow() {
+        BusinessDateRepository repository = mock(BusinessDateRepository.class);
+        when(repository.findByStatus("OPEN")).thenReturn(List.of(openDate(2026, 9, 2)));
+
+        assertThatThrownBy(() -> service(repository, clockAt(2026, 9, 8, 10, 0, 0))
+                .validateNewOperationalMutationAllowed())
+                .isInstanceOf(ResourceConflictException.class)
+                .hasMessageContaining("Operational Business Date 2026-09-02 is stale");
+    }
+
+    @Test
+    void missingBusinessDateBlocksNewAndSettlementMutations() {
+        BusinessDateRepository repository = mock(BusinessDateRepository.class);
+        when(repository.findByStatus("OPEN")).thenReturn(List.of());
+        BusinessDateService service = service(repository, clockAt(2026, 9, 8, 18, 0, 0));
+
+        assertThatThrownBy(service::validateNewOperationalMutationAllowed)
+                .isInstanceOf(ResourceConflictException.class)
+                .hasMessageContaining("No operational Business Date is OPEN");
+        assertThatThrownBy(service::validateSettlementMutationAllowed)
+                .isInstanceOf(ResourceConflictException.class)
+                .hasMessageContaining("No operational Business Date is OPEN");
+    }
+
+    @Test
+    void inconsistentBusinessDateBlocksNewAndSettlementMutations() {
+        BusinessDateRepository repository = mock(BusinessDateRepository.class);
+        when(repository.findByStatus("OPEN")).thenReturn(List.of(
+                openDate(2026, 9, 7), openDate(2026, 9, 8)));
+        BusinessDateService service = service(repository, clockAt(2026, 9, 8, 18, 0, 0));
+
+        assertThatThrownBy(service::validateNewOperationalMutationAllowed)
+                .isInstanceOf(ResourceConflictException.class)
+                .hasMessageContaining("state is inconsistent");
+        assertThatThrownBy(service::validateSettlementMutationAllowed)
+                .isInstanceOf(ResourceConflictException.class)
+                .hasMessageContaining("state is inconsistent");
+    }
+
     private BusinessDateService service(BusinessDateRepository repository, Clock clock) {
         return new BusinessDateService(repository,
                 mock(BusinessDateValidationService.class), mock(AuditLogService.class),
@@ -394,6 +467,11 @@ class BusinessDateServiceTests {
 
     private Clock fixedClock() {
         return Clock.fixed(Instant.parse("2026-09-07T19:15:00Z"), ZoneId.of("UTC"));
+    }
+
+    private Clock clockAt(int year, int month, int day, int hour, int minute, int second) {
+        return Clock.fixed(ZonedDateTime.of(year, month, day, hour, minute, second, 0, CASINO_ZONE).toInstant(),
+                ZoneId.of("UTC"));
     }
 
     private BusinessDate openDate(int year, int month, int day) {

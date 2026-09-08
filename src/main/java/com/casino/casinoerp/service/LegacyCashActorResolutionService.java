@@ -75,6 +75,7 @@ public class LegacyCashActorResolutionService {
             return response(replay.get(), requiredUser(targetUserId));
         }
 
+        businessDates.validateSettlementMutationAllowed();
         BusinessDate openDate = businessDates.getCurrentOpenBusinessDate()
                 .orElseThrow(() -> new ResourceConflictException("Current business date is not opened."));
         if (systemLock.isSystemLocked()) {

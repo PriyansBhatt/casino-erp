@@ -94,7 +94,19 @@ class CustomerSessionServiceTests {
         assertThat(saved.getOpenedBy()).isEqualTo(operatorId);
         assertThat(response.id()).isEqualTo(saved.getId());
         assertThat(response.businessDate()).isEqualTo(businessDate);
+        verify(businessDateService).validateNewOperationalMutationAllowed();
         verify(businessDateService).validateBusinessDateIsOpen();
+    }
+
+    @Test
+    void staleBusinessDateBlocksOpeningSessionBeforePersistence() {
+        org.mockito.Mockito.doThrow(new ResourceConflictException("Operational Business Date is stale."))
+                .when(businessDateService).validateNewOperationalMutationAllowed();
+
+        assertThatThrownBy(() -> service.openSession(customerId))
+                .isInstanceOf(ResourceConflictException.class)
+                .hasMessageContaining("stale");
+        verify(repository, never()).save(any());
     }
 
     @Test
@@ -169,6 +181,7 @@ class CustomerSessionServiceTests {
         assertThat(response.status()).isEqualTo("CLOSED");
         assertThat(session.getExitTime()).isNotNull();
         assertThat(session.getClosedBy()).isEqualTo(operatorId);
+        verify(businessDateService).validateSettlementMutationAllowed();
         verify(repository).save(session);
     }
 

@@ -87,6 +87,7 @@ class ChipCustodyServiceTests {
 
         assertThat(response.movementType()).isEqualTo(ChipCustodyMovementType.CAGE_OPENING);
         assertThat(response.totalValue()).isEqualByComparingTo("20000");
+        verify(businessDates).validateNewOperationalMutationAllowed();
         assertThat(rows.get(key("CAGE", 500)).getQuantity()).isEqualTo(20);
         assertThat(rows.get(key("CAGE", 1000)).getQuantity()).isEqualTo(10);
     }
@@ -107,6 +108,7 @@ class ChipCustodyServiceTests {
                 Map.of(1000, 4L), new BigDecimal("4000"), actorId);
 
         assertThat(movement.getMovementType()).isEqualTo(ChipCustodyMovementType.BUY_IN_ISSUE);
+        verify(businessDates).validateNewOperationalMutationAllowed();
         assertThat(rows.get(key("CAGE", 1000)).getQuantity()).isEqualTo(6);
         assertThat(rows.get(key("CUSTOMER_SESSION:" + sessionId, 1000)).getQuantity()).isEqualTo(4);
     }
@@ -128,6 +130,7 @@ class ChipCustodyServiceTests {
         service.recordCashOut(UUID.randomUUID(), sessionId, businessDate,
                 Map.of(500, 4L), new BigDecimal("2000"), actorId);
 
+        verify(businessDates).validateSettlementMutationAllowed();
         assertThat(rows.get(key("CAGE", 500)).getQuantity()).isEqualTo(7);
         assertThat(rows.get(key("CUSTOMER_SESSION:" + sessionId, 500)).getQuantity()).isEqualTo(1);
     }
@@ -150,6 +153,8 @@ class ChipCustodyServiceTests {
         assertThat(rows.get(key("PIT_TABLE:" + tableId, 5000)).getQuantity()).isEqualTo(4);
 
         service.returnTableFloat(tableId, request(Map.of(5000, 3L), "return"));
+        verify(businessDates).validateNewOperationalMutationAllowed();
+        verify(businessDates).validateSettlementMutationAllowed();
         assertThat(rows.get(key("CAGE", 5000)).getQuantity()).isEqualTo(9);
         assertThat(rows.get(key("PIT_TABLE:" + tableId, 5000)).getQuantity()).isEqualTo(1);
     }
@@ -177,6 +182,8 @@ class ChipCustodyServiceTests {
 
         var returned = service.returnTableChipsToCustomer(tableId, sessionId,
                 request(Map.of(5000, 2L), "table-customer"));
+        verify(businessDates).validateNewOperationalMutationAllowed();
+        verify(businessDates).validateSettlementMutationAllowed();
         assertThat(returned.movementType()).isEqualTo(ChipCustodyMovementType.TABLE_TO_CUSTOMER);
         assertThat(rows.get(key("CUSTOMER_SESSION:" + sessionId, 5000)).getQuantity()).isEqualTo(3);
         assertThat(rows.get(key("PIT_TABLE:" + tableId, 5000)).getQuantity()).isEqualTo(2);

@@ -48,6 +48,7 @@ public class CustomerBonusService {
             CustomerSession session = sessions.findById(replay.getCustomerSessionId()).orElse(null);
             return response(replay, customer, session, null);
         }
+        businessDateService.validateNewOperationalMutationAllowed();
         businessDateService.validateBusinessDateIsOpen();
         LocalDate date = businessDateService.getCurrentBusinessDate();
         if (systemLock.isSystemLocked()) {

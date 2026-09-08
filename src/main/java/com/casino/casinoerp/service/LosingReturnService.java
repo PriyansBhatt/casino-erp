@@ -59,6 +59,7 @@ public class LosingReturnService {
                 throw new ResourceConflictException("Idempotency key has already been used for a different Losing Return.");
             return response(replay);
         }
+        businessDates.validateSettlementMutationAllowed();
         LocalDate date = currentDate();
         if (systemLock.isSystemLocked()) throw new RuntimeException("System is locked. Losing Return transactions are not allowed.");
         User actor = authenticatedUsers.getRequiredUser();

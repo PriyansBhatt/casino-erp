@@ -74,6 +74,7 @@ class VerifiedGamingResultServiceTests {
         assertThat(response.createdBy().id()).isEqualTo(actorId);
         assertThat(response.denominations()).containsEntry(500, 5);
         assertThat(response.amount()).isEqualByComparingTo("2500");
+        verify(businessDateService).validateNewOperationalMutationAllowed();
         verify(repository).save(argThat(result -> businessDate.equals(result.getBusinessDate())
                 && actorId.equals(result.getCreatedBy())
                 && result.getCreatedAt() != null));

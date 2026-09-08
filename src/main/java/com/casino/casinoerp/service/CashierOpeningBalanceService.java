@@ -63,6 +63,7 @@ public class CashierOpeningBalanceService {
     @Transactional
     public CashierOpeningBalanceResponse create(CreateCashierOpeningBalanceRequest request) {
         validateCreateRole();
+        businessDateService.validateNewOperationalMutationAllowed();
         if (request.openingCashAmount() == null || request.openingCashAmount().signum() < 0
                 || request.openingCashAmount().compareTo(MAX_AMOUNT) > 0) {
             throw new IllegalArgumentException("Opening Cash must be zero or greater and within supported limits.");

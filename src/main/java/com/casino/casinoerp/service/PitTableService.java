@@ -69,6 +69,7 @@ public class PitTableService {
     @Transactional
     public PitTable closeTable(UUID tableId, BigDecimal closingFloat) {
 
+        businessDateService.validateSettlementMutationAllowed();
         businessDateService.validateBusinessDateIsOpen();
 
         if (systemLockService.isSystemLocked()) {
@@ -122,6 +123,7 @@ public class PitTableService {
 
     public PitTable save(PitTable table) {
 
+        businessDateService.validateNewOperationalMutationAllowed();
         businessDateService.validateBusinessDateIsOpen();
 
         if (systemLockService.isSystemLocked()) {
