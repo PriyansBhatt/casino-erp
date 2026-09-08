@@ -2,11 +2,13 @@ package com.casino.casinoerp;
 
 import com.casino.casinoerp.entity.BusinessDate;
 import com.casino.casinoerp.entity.BusinessDateHealth;
+import com.casino.casinoerp.entity.BusinessDateContinuationOverride;
 import com.casino.casinoerp.exception.ResourceConflictException;
 import com.casino.casinoerp.repository.BusinessDateRepository;
 import com.casino.casinoerp.security.Role;
 import com.casino.casinoerp.service.AuditLogService;
 import com.casino.casinoerp.service.BusinessDateService;
+import com.casino.casinoerp.service.BusinessDateContinuationOverrideService;
 import com.casino.casinoerp.service.BusinessDateValidationService;
 import com.casino.casinoerp.service.CurrentUserRoleService;
 import com.casino.casinoerp.service.RolePermissionService;
@@ -266,6 +268,36 @@ class BusinessDateServiceTests {
         assertThatThrownBy(() -> service.openBusinessDate(LocalDate.of(2026, 9, 8), null))
                 .isInstanceOf(ResourceConflictException.class)
                 .hasMessage("Business Date lifecycle changed concurrently. Refresh and retry.");
+    }
+
+    @Test
+    void activeOverrideAllowsBeyondGraceNewObligationAndIsAudited() {
+        BusinessDateRepository repository = mock(BusinessDateRepository.class);
+        when(repository.findByStatus("OPEN")).thenReturn(List.of(openDate(2026, 9, 2)));
+        BusinessDateContinuationOverrideService overrides = mock(BusinessDateContinuationOverrideService.class);
+        BusinessDateContinuationOverride active = new BusinessDateContinuationOverride();
+        active.setId(java.util.UUID.randomUUID());
+        active.setBusinessDate(LocalDate.of(2026, 9, 2));
+        when(overrides.activeFor(LocalDate.of(2026, 9, 2))).thenReturn(Optional.of(active));
+        BusinessDateService service = service(repository);
+        service.setContinuationOverrides(overrides);
+
+        assertThatCode(service::validateNewOperationalMutationAllowed).doesNotThrowAnyException();
+
+        verify(overrides).auditOperationUnderOverride(active);
+    }
+
+    @Test
+    void expiredOrRevokedOverrideDoesNotAllowBeyondGraceNewObligation() {
+        BusinessDateRepository repository = mock(BusinessDateRepository.class);
+        when(repository.findByStatus("OPEN")).thenReturn(List.of(openDate(2026, 9, 2)));
+        BusinessDateContinuationOverrideService overrides = mock(BusinessDateContinuationOverrideService.class);
+        when(overrides.activeFor(LocalDate.of(2026, 9, 2))).thenReturn(Optional.empty());
+        BusinessDateService service = service(repository);
+        service.setContinuationOverrides(overrides);
+
+        assertThatThrownBy(service::validateNewOperationalMutationAllowed)
+                .isInstanceOf(ResourceConflictException.class).hasMessageContaining("stale");
     }
 
     @Test

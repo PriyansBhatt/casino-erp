@@ -1,14 +1,19 @@
 package com.casino.casinoerp;
 
 import com.casino.casinoerp.dto.BusinessDateHealthResponse;
+import com.casino.casinoerp.dto.BusinessDateContinuationOverrideResponse;
 import com.casino.casinoerp.entity.BusinessDateHealth;
 import com.casino.casinoerp.service.BusinessDateService;
+import com.casino.casinoerp.service.BusinessDateContinuationOverrideService;
 import com.casino.casinoerp.service.OperationalStatusService;
 import com.casino.casinoerp.service.SystemLockService;
 import org.junit.jupiter.api.Test;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.Instant;
+import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.*;
@@ -16,7 +21,8 @@ import static org.mockito.Mockito.*;
 class OperationalStatusServiceTests {
     private final BusinessDateService businessDates = mock(BusinessDateService.class);
     private final SystemLockService systemLock = mock(SystemLockService.class);
-    private final OperationalStatusService service = new OperationalStatusService(businessDates, systemLock);
+    private final BusinessDateContinuationOverrideService overrides = mock(BusinessDateContinuationOverrideService.class);
+    private final OperationalStatusService service = new OperationalStatusService(businessDates, systemLock, overrides);
 
     @Test
     void reportsAuthoritativeOpenBusinessDateAndUnlockedState() {
@@ -74,6 +80,33 @@ class OperationalStatusServiceTests {
         assertThat(response.businessDateOpen()).isFalse();
         assertThat(response.businessDateHealth()).isEqualTo(BusinessDateHealth.INCONSISTENT);
         assertThat(response.lifecycleWarning()).contains("multiple");
+    }
+
+    @Test
+    void reportsActiveContinuationOverrideFromBackendAuthority() {
+        when(businessDates.getHealth()).thenReturn(health(LocalDate.of(2026, 9, 2),
+                BusinessDateHealth.STALE, true, 5, "stale"));
+        when(overrides.current()).thenReturn(Optional.of(override(true)));
+
+        var response = service.current();
+
+        assertThat(response.continuationOverrideActive()).isTrue();
+        assertThat(response.continuationOverrideExpiresAt()).isEqualTo(Instant.parse("2026-09-09T08:00:00Z"));
+        assertThat(response.continuationOverrideReason()).isEqualTo("Controlled continuation");
+    }
+
+    @Test
+    void expiredOrRevokedContinuationIsReportedInactive() {
+        when(businessDates.getHealth()).thenReturn(health(LocalDate.of(2026, 9, 2),
+                BusinessDateHealth.STALE, true, 5, "stale"));
+        when(overrides.current()).thenReturn(Optional.of(override(false)));
+        assertThat(service.current().continuationOverrideActive()).isFalse();
+    }
+
+    private BusinessDateContinuationOverrideResponse override(boolean active) {
+        return new BusinessDateContinuationOverrideResponse(UUID.randomUUID(), LocalDate.of(2026, 9, 2),
+                "Controlled continuation", null, Instant.parse("2026-09-09T07:00:00Z"),
+                Instant.parse("2026-09-09T08:00:00Z"), active, null, null, null);
     }
 
     private BusinessDateHealthResponse health(LocalDate open, BusinessDateHealth health,

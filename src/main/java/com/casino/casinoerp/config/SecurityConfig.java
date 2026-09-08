@@ -345,6 +345,12 @@ public class SecurityConfig {
                         )
                         .hasAnyRole(Role.SUPER_ADMIN.name(), Role.DIRECTOR.name())
 
+                        .requestMatchers(HttpMethod.POST, "/api/business-date/continuation-override")
+                        .hasAnyRole(Role.SUPER_ADMIN.name(), Role.DIRECTOR.name())
+
+                        .requestMatchers(HttpMethod.DELETE, "/api/business-date/continuation-override")
+                        .hasAnyRole(Role.SUPER_ADMIN.name(), Role.DIRECTOR.name())
+
                         .requestMatchers(HttpMethod.GET, "/api/business-date", "/api/business-date/**")
                         .authenticated()
 

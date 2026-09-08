@@ -92,6 +92,53 @@ class BusinessDateLifecycleLockIntegrationTests {
                 "No operational Business Date is OPEN. Settlement operations requiring an OPEN Business Date are disabled.");
     }
 
+    @Test
+    void closeAndContinuationOverrideCreationUseSamePostgresLock() throws Exception {
+        assertThat(serializedStateChange("STALE", "HEALTHY")).isEqualTo("HEALTHY");
+    }
+
+    @Test
+    void continuationOverrideCreationAndNewObligationUseSamePostgresLock() throws Exception {
+        assertThat(serializedStateChange("NO_OVERRIDE", "ACTIVE_OVERRIDE")).isEqualTo("ACTIVE_OVERRIDE");
+    }
+
+    @Test
+    void continuationOverrideRevocationAndNewObligationUseSamePostgresLock() throws Exception {
+        assertThat(serializedStateChange("ACTIVE_OVERRIDE", "REVOKED_OVERRIDE")).isEqualTo("REVOKED_OVERRIDE");
+    }
+
+    private String serializedStateChange(String initialState, String committedState) throws Exception {
+        var executor = Executors.newFixedThreadPool(2);
+        var firstHasLock = new CountDownLatch(1);
+        var releaseFirst = new CountDownLatch(1);
+        var secondHasLock = new CountDownLatch(1);
+        var state = new AtomicReference<>(initialState);
+        try {
+            var first = executor.submit(() -> inTransaction(() -> {
+                repository.acquireLifecycleLock();
+                state.set(committedState);
+                firstHasLock.countDown();
+                await(releaseFirst);
+            }));
+            assertThat(firstHasLock.await(5, TimeUnit.SECONDS)).isTrue();
+            var second = executor.submit(() -> new TransactionTemplate(transactionManager).execute(status -> {
+                repository.acquireLifecycleLock();
+                secondHasLock.countDown();
+                return state.get();
+            }));
+            assertThat(secondHasLock.await(250, TimeUnit.MILLISECONDS)).isFalse();
+            releaseFirst.countDown();
+            first.get(5, TimeUnit.SECONDS);
+            String observedState = second.get(5, TimeUnit.SECONDS);
+            assertThat(secondHasLock.getCount()).isZero();
+            return observedState;
+        } finally {
+            releaseFirst.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
     private String mutationWaitingForClose(boolean settlement) throws Exception {
         BusinessDateRepository guardedRepository = mock(BusinessDateRepository.class);
         AtomicReference<List<BusinessDate>> openDates = new AtomicReference<>(List.of(openDate()));

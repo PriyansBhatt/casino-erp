@@ -1,12 +1,14 @@
 package com.casino.casinoerp.service;
 
 import com.casino.casinoerp.entity.BusinessDate;
+import com.casino.casinoerp.entity.BusinessDateContinuationOverride;
 import com.casino.casinoerp.entity.BusinessDateHealth;
 import com.casino.casinoerp.dto.BusinessDateHealthResponse;
 import com.casino.casinoerp.exception.ResourceConflictException;
 import com.casino.casinoerp.repository.BusinessDateRepository;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,6 +39,7 @@ public class BusinessDateService {
     private final RolePermissionService rolePermissionService;
     private final CurrentUserRoleService currentUserRoleService;
     private final Clock clock;
+    private BusinessDateContinuationOverrideService continuationOverrides;
 
     public BusinessDateService(
             BusinessDateRepository businessDateRepository,
@@ -52,6 +55,11 @@ public class BusinessDateService {
         this.rolePermissionService = rolePermissionService;
         this.currentUserRoleService = currentUserRoleService;
         this.clock = clock;
+    }
+
+    @Autowired(required = false)
+    public void setContinuationOverrides(@Lazy BusinessDateContinuationOverrideService continuationOverrides) {
+        this.continuationOverrides = continuationOverrides;
     }
 
     public LocalDate getCurrentBusinessDate() {
@@ -124,7 +132,13 @@ public class BusinessDateService {
             case STALE -> {
                 if (health.staleByDays() != 1
                         || currentCasinoDateTime().toLocalTime().isAfter(STALE_OPERATION_GRACE_END)) {
-                    throw staleOperationConflict(health.businessDate());
+                    var activeOverride = continuationOverrides == null
+                            ? Optional.<BusinessDateContinuationOverride>empty()
+                            : continuationOverrides.activeFor(health.businessDate());
+                    if (activeOverride.isEmpty()) {
+                        throw staleOperationConflict(health.businessDate());
+                    }
+                    continuationOverrides.auditOperationUnderOverride(activeOverride.get());
                 }
             }
             case MISSING -> throw new ResourceConflictException(
