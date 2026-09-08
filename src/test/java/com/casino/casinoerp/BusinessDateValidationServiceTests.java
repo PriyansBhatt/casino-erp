@@ -8,6 +8,7 @@ import com.casino.casinoerp.entity.LegacyCashActorResolution;
 import com.casino.casinoerp.entity.PitTable;
 import com.casino.casinoerp.entity.PitTableCustomerAssignment;
 import com.casino.casinoerp.entity.PitTableCustomerAssignmentStatus;
+import com.casino.casinoerp.entity.PitTableStaffAssignment;
 import com.casino.casinoerp.entity.User;
 import com.casino.casinoerp.repository.CashierReconciliationRepository;
 import com.casino.casinoerp.repository.CashierOpeningBalanceRepository;
@@ -16,6 +17,10 @@ import com.casino.casinoerp.repository.ChipCashOutRepository;
 import com.casino.casinoerp.repository.CustomerSessionRepository;
 import com.casino.casinoerp.repository.PitTableCustomerAssignmentRepository;
 import com.casino.casinoerp.repository.PitTableRepository;
+import com.casino.casinoerp.repository.PitTableStaffAssignmentRepository;
+import com.casino.casinoerp.repository.ChipCustodyInventoryRepository;
+import com.casino.casinoerp.repository.CustomerSessionCustodySummaryProjection;
+import com.casino.casinoerp.repository.PitTableCustodySummaryProjection;
 import com.casino.casinoerp.repository.UserRepository;
 import com.casino.casinoerp.repository.LegacyCashActorResolutionRepository;
 import com.casino.casinoerp.repository.LosingReturnRepository;
@@ -41,6 +46,9 @@ class BusinessDateValidationServiceTests {
             mock(PitTableCustomerAssignmentRepository.class);
     private final SessionFinancialPositionService positions = mock(SessionFinancialPositionService.class);
     private final PitTableRepository tables = mock(PitTableRepository.class);
+    private final PitTableStaffAssignmentRepository staffAssignments =
+            mock(PitTableStaffAssignmentRepository.class);
+    private final ChipCustodyInventoryRepository custody = mock(ChipCustodyInventoryRepository.class);
     private final CashierReconciliationRepository reconciliations =
             mock(CashierReconciliationRepository.class);
     private final UserRepository users = mock(UserRepository.class);
@@ -51,15 +59,18 @@ class BusinessDateValidationServiceTests {
     private final LegacyCashActorResolutionRepository legacyResolutions =
             mock(LegacyCashActorResolutionRepository.class);
     private final BusinessDateValidationService service = new BusinessDateValidationService(
-            sessions, assignments, positions, tables, reconciliations, users,
+            sessions, assignments, positions, tables, staffAssignments, custody, reconciliations, users,
             openingBalances, buyIns, cashOuts, losingReturns, legacyResolutions);
     private final LocalDate date = LocalDate.of(2026, 8, 8);
 
     @BeforeEach
     void settledBusinessDate() {
-        when(sessions.findByStatusIgnoreCaseAndBusinessDateOrderByEntryTimeAsc("OPEN", date))
+        when(sessions.findByBusinessDateOrderByEntryTimeAsc(date)).thenReturn(List.of());
+        when(assignments.findByBusinessDateAndStatusOrderByJoinedAtAsc(
+                date, PitTableCustomerAssignmentStatus.ACTIVE)).thenReturn(List.of());
+        when(staffAssignments.findByBusinessDateAndEndedAtIsNullOrderByStartedAtAsc(date))
                 .thenReturn(List.of());
-        when(tables.findByStatusIgnoreCaseAndBusinessDate("OPEN", date)).thenReturn(List.of());
+        when(tables.findByBusinessDate(date)).thenReturn(List.of());
         when(reconciliations.findByBusinessDateOrderBySubmittedAtDesc(date)).thenReturn(List.of());
         when(users.findAll()).thenReturn(List.of());
         when(buyIns.findByBusinessDate(date)).thenReturn(List.of());
@@ -94,21 +105,151 @@ class BusinessDateValidationServiceTests {
     void activePitAssignmentBlocksClose() {
         CustomerSession session = openSession();
         stubPosition(session, BigDecimal.ZERO);
-        when(assignments.findByCustomerSessionIdAndStatus(
-                session.getId(), PitTableCustomerAssignmentStatus.ACTIVE))
-                .thenReturn(Optional.of(new PitTableCustomerAssignment()));
+        when(assignments.findByBusinessDateAndStatusOrderByJoinedAtAsc(
+                date, PitTableCustomerAssignmentStatus.ACTIVE))
+                .thenReturn(List.of(new PitTableCustomerAssignment()));
 
         assertThat(service.validateCloseRequirements(date))
-                .anyMatch(error -> error.contains("ACTIVE Pit Table assignment"));
+                .anyMatch(error -> error.contains("active customer Pit Table assignment"));
+    }
+
+    @Test
+    void activePitAssignmentForClosedSessionBlocksClose() {
+        CustomerSession session = closedSession();
+        stubPosition(session, BigDecimal.ZERO);
+        when(assignments.findByBusinessDateAndStatusOrderByJoinedAtAsc(
+                date, PitTableCustomerAssignmentStatus.ACTIVE))
+                .thenReturn(List.of(new PitTableCustomerAssignment()));
+
+        assertThat(service.validateCloseRequirements(date))
+                .anyMatch(error -> error.contains("active customer Pit Table assignment"));
+    }
+
+    @Test
+    void endedAssignmentAndAssignmentFromAnotherDateDoNotBlockClose() {
+        LocalDate otherDate = date.minusDays(1);
+        when(assignments.findByBusinessDateAndStatusOrderByJoinedAtAsc(
+                otherDate, PitTableCustomerAssignmentStatus.ACTIVE))
+                .thenReturn(List.of(new PitTableCustomerAssignment()));
+
+        assertThat(service.validateCloseRequirements(date))
+                .noneMatch(error -> error.contains("active customer Pit Table assignment"));
+    }
+
+    @Test
+    void activeStaffAssignmentBlocksClose() {
+        when(staffAssignments.findByBusinessDateAndEndedAtIsNullOrderByStartedAtAsc(date))
+                .thenReturn(List.of(new PitTableStaffAssignment()));
+
+        assertThat(service.validateCloseRequirements(date))
+                .anyMatch(error -> error.contains("active staff Pit Table assignment"));
+    }
+
+    @Test
+    void endedStaffAssignmentAndAssignmentFromAnotherDateDoNotBlockClose() {
+        LocalDate otherDate = date.minusDays(1);
+        when(staffAssignments.findByBusinessDateAndEndedAtIsNullOrderByStartedAtAsc(otherDate))
+                .thenReturn(List.of(new PitTableStaffAssignment()));
+
+        assertThat(service.validateCloseRequirements(date))
+                .noneMatch(error -> error.contains("active staff Pit Table assignment"));
     }
 
     @Test
     void openPitTableBlocksClose() {
-        when(tables.findByStatusIgnoreCaseAndBusinessDate("OPEN", date))
-                .thenReturn(List.of(new PitTable()));
+        PitTable table = table(date, "OPEN");
+        when(tables.findByBusinessDate(date)).thenReturn(List.of(table));
 
         assertThat(service.validateCloseRequirements(date))
                 .anyMatch(error -> error.contains("Pit Table(s) still OPEN"));
+    }
+
+    @Test
+    void closedSessionPositivePositionBlocksClose() {
+        CustomerSession session = closedSession();
+        stubPosition(session, new BigDecimal("1000"));
+
+        assertThat(service.validateCloseRequirements(date))
+                .anyMatch(error -> error.contains("CLOSED customer session(s)")
+                        && error.contains("positive"));
+    }
+
+    @Test
+    void closedSessionNegativePositionBlocksClose() {
+        CustomerSession session = closedSession();
+        stubPosition(session, new BigDecimal("-1000"));
+
+        assertThat(service.validateCloseRequirements(date))
+                .anyMatch(error -> error.contains("CLOSED customer session(s)")
+                        && error.contains("negative"));
+    }
+
+    @Test
+    void closedSessionZeroPositionDoesNotBlockClose() {
+        CustomerSession session = closedSession();
+        stubPosition(session, BigDecimal.ZERO);
+
+        assertThat(service.validateCloseRequirements(date))
+                .noneMatch(error -> error.contains("CLOSED customer session(s)"));
+    }
+
+    @Test
+    void unresolvedCustomerSessionCustodyBlocksClose() {
+        CustomerSession session = closedSession();
+        stubPosition(session, BigDecimal.ZERO);
+        CustomerSessionCustodySummaryProjection summary = mock(CustomerSessionCustodySummaryProjection.class);
+        when(summary.getCustodyTotal()).thenReturn(new BigDecimal("5000"));
+        when(custody.summarizeCustomerSessions(List.of(session.getId()))).thenReturn(List.of(summary));
+
+        assertThat(service.validateCloseRequirements(date))
+                .anyMatch(error -> error.contains("customer session(s) retain unresolved physical chip custody"));
+    }
+
+    @Test
+    void zeroCustomerSessionCustodyDoesNotBlockClose() {
+        CustomerSession session = closedSession();
+        stubPosition(session, BigDecimal.ZERO);
+        CustomerSessionCustodySummaryProjection summary = mock(CustomerSessionCustodySummaryProjection.class);
+        when(summary.getCustodyTotal()).thenReturn(BigDecimal.ZERO);
+        when(custody.summarizeCustomerSessions(List.of(session.getId()))).thenReturn(List.of(summary));
+
+        assertThat(service.validateCloseRequirements(date))
+                .noneMatch(error -> error.contains("customer session(s) retain unresolved physical chip custody"));
+    }
+
+    @Test
+    void unresolvedPitTableCustodyBlocksClose() {
+        PitTable table = table(date, "CLOSED");
+        when(tables.findByBusinessDate(date)).thenReturn(List.of(table));
+        PitTableCustodySummaryProjection summary = mock(PitTableCustodySummaryProjection.class);
+        when(summary.getCustodyTotal()).thenReturn(new BigDecimal("10000"));
+        when(custody.summarizePitTables(List.of(table.getId()))).thenReturn(List.of(summary));
+
+        assertThat(service.validateCloseRequirements(date))
+                .anyMatch(error -> error.contains("Pit Table(s) retain unresolved physical chip custody"));
+    }
+
+    @Test
+    void zeroPitTableCustodyDoesNotBlockClose() {
+        PitTable table = table(date, "CLOSED");
+        when(tables.findByBusinessDate(date)).thenReturn(List.of(table));
+        PitTableCustodySummaryProjection summary = mock(PitTableCustodySummaryProjection.class);
+        when(summary.getCustodyTotal()).thenReturn(BigDecimal.ZERO);
+        when(custody.summarizePitTables(List.of(table.getId()))).thenReturn(List.of(summary));
+
+        assertThat(service.validateCloseRequirements(date))
+                .noneMatch(error -> error.contains("Pit Table(s) retain unresolved physical chip custody"));
+    }
+
+    @Test
+    void cageInventoryAndCustodyFromAnotherBusinessDateDoNotBlockClose() {
+        LocalDate otherDate = date.minusDays(1);
+        CustomerSession otherSession = session(otherDate, "CLOSED");
+        PitTable otherTable = table(otherDate, "CLOSED");
+        when(sessions.findByBusinessDateOrderByEntryTimeAsc(otherDate)).thenReturn(List.of(otherSession));
+        when(tables.findByBusinessDate(otherDate)).thenReturn(List.of(otherTable));
+
+        assertThat(service.validateCloseRequirements(date)).isEmpty();
     }
 
     @Test
@@ -187,17 +328,30 @@ class BusinessDateValidationServiceTests {
     }
 
     private CustomerSession openSession() {
+        return session(date, "OPEN");
+    }
+
+    private CustomerSession closedSession() {
+        return session(date, "CLOSED");
+    }
+
+    private CustomerSession session(LocalDate businessDate, String status) {
         CustomerSession session = new CustomerSession();
         session.setId(UUID.randomUUID());
         session.setCustomerId(UUID.randomUUID());
-        session.setBusinessDate(date);
-        session.setStatus("OPEN");
-        when(sessions.findByStatusIgnoreCaseAndBusinessDateOrderByEntryTimeAsc("OPEN", date))
+        session.setBusinessDate(businessDate);
+        session.setStatus(status);
+        when(sessions.findByBusinessDateOrderByEntryTimeAsc(businessDate))
                 .thenReturn(List.of(session));
-        when(assignments.findByCustomerSessionIdAndStatus(
-                session.getId(), PitTableCustomerAssignmentStatus.ACTIVE))
-                .thenReturn(Optional.empty());
         return session;
+    }
+
+    private PitTable table(LocalDate businessDate, String status) {
+        PitTable table = new PitTable();
+        table.setId(UUID.randomUUID());
+        table.setBusinessDate(businessDate);
+        table.setStatus(status);
+        return table;
     }
 
     private void stubPosition(CustomerSession session, BigDecimal value) {

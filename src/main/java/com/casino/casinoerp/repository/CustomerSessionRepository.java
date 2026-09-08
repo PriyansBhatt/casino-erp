@@ -13,6 +13,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 import java.util.Optional;
+import java.time.LocalDate;
 
 public interface CustomerSessionRepository extends JpaRepository<CustomerSession, UUID> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
@@ -26,6 +27,8 @@ public interface CustomerSessionRepository extends JpaRepository<CustomerSession
 
     List<CustomerSession> findByStatusIgnoreCaseAndBusinessDateOrderByEntryTimeAsc(
             String status, java.time.LocalDate businessDate);
+
+    List<CustomerSession> findByBusinessDateOrderByEntryTimeAsc(LocalDate businessDate);
 
     @Query(value = """
             select

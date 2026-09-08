@@ -30,4 +30,14 @@ public interface ChipCustodyInventoryRepository extends JpaRepository<ChipCustod
             """, nativeQuery = true)
     List<CustomerSessionCustodySummaryProjection> summarizeCustomerSessions(
             @Param("sessionIds") Collection<UUID> sessionIds);
+
+    @Query(value = """
+            select reference_id as "pitTableId",
+                   cast(coalesce(sum(denomination * quantity), 0) as numeric) as "custodyTotal"
+              from cashier.chip_custody_inventory
+             where location_type = 'PIT_TABLE' and reference_id in (:tableIds)
+             group by reference_id
+            """, nativeQuery = true)
+    List<PitTableCustodySummaryProjection> summarizePitTables(
+            @Param("tableIds") Collection<UUID> tableIds);
 }

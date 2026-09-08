@@ -8,6 +8,7 @@ import com.casino.casinoerp.entity.CustomerSession;
 import com.casino.casinoerp.entity.LegacyCashActorResolution;
 import com.casino.casinoerp.entity.LosingReturn;
 import com.casino.casinoerp.entity.PitTableCustomerAssignmentStatus;
+import com.casino.casinoerp.entity.PitTable;
 import com.casino.casinoerp.entity.User;
 import com.casino.casinoerp.repository.CashierReconciliationRepository;
 import com.casino.casinoerp.repository.CashierOpeningBalanceRepository;
@@ -16,6 +17,8 @@ import com.casino.casinoerp.repository.ChipCashOutRepository;
 import com.casino.casinoerp.repository.CustomerSessionRepository;
 import com.casino.casinoerp.repository.PitTableCustomerAssignmentRepository;
 import com.casino.casinoerp.repository.PitTableRepository;
+import com.casino.casinoerp.repository.PitTableStaffAssignmentRepository;
+import com.casino.casinoerp.repository.ChipCustodyInventoryRepository;
 import com.casino.casinoerp.repository.UserRepository;
 import com.casino.casinoerp.repository.LegacyCashActorResolutionRepository;
 import com.casino.casinoerp.repository.LosingReturnRepository;
@@ -41,6 +44,8 @@ public class BusinessDateValidationService {
     private final PitTableCustomerAssignmentRepository assignmentRepository;
     private final SessionFinancialPositionService financialPositionService;
     private final PitTableRepository pitTableRepository;
+    private final PitTableStaffAssignmentRepository staffAssignmentRepository;
+    private final ChipCustodyInventoryRepository custodyInventoryRepository;
     private final CashierReconciliationRepository reconciliationRepository;
     private final UserRepository userRepository;
     private final CashierOpeningBalanceRepository openingBalanceRepository;
@@ -54,6 +59,8 @@ public class BusinessDateValidationService {
             PitTableCustomerAssignmentRepository assignmentRepository,
             SessionFinancialPositionService financialPositionService,
             PitTableRepository pitTableRepository,
+            PitTableStaffAssignmentRepository staffAssignmentRepository,
+            ChipCustodyInventoryRepository custodyInventoryRepository,
             CashierReconciliationRepository reconciliationRepository,
             UserRepository userRepository,
             CashierOpeningBalanceRepository openingBalanceRepository,
@@ -65,6 +72,8 @@ public class BusinessDateValidationService {
         this.assignmentRepository = assignmentRepository;
         this.financialPositionService = financialPositionService;
         this.pitTableRepository = pitTableRepository;
+        this.staffAssignmentRepository = staffAssignmentRepository;
+        this.custodyInventoryRepository = custodyInventoryRepository;
         this.reconciliationRepository = reconciliationRepository;
         this.userRepository = userRepository;
         this.openingBalanceRepository = openingBalanceRepository;
@@ -76,19 +85,27 @@ public class BusinessDateValidationService {
 
     public List<String> validateCloseRequirements(LocalDate businessDate) {
         List<String> errors = new ArrayList<>();
-        List<CustomerSession> openSessions = sessionRepository
-                .findByStatusIgnoreCaseAndBusinessDateOrderByEntryTimeAsc("OPEN", businessDate);
+        List<CustomerSession> sessions = sessionRepository
+                .findByBusinessDateOrderByEntryTimeAsc(businessDate);
+        List<CustomerSession> openSessions = sessions.stream()
+                .filter(session -> "OPEN".equalsIgnoreCase(session.getStatus()))
+                .toList();
 
         if (!openSessions.isEmpty()) {
             errors.add(openSessions.size() + " customer session(s) still OPEN");
         }
 
-        long activeAssignments = openSessions.stream()
-                .filter(session -> assignmentRepository.findByCustomerSessionIdAndStatus(
-                        session.getId(), PitTableCustomerAssignmentStatus.ACTIVE).isPresent())
-                .count();
+        long activeAssignments = assignmentRepository
+                .findByBusinessDateAndStatusOrderByJoinedAtAsc(
+                        businessDate, PitTableCustomerAssignmentStatus.ACTIVE).size();
         if (activeAssignments > 0) {
-            errors.add(activeAssignments + " OPEN customer session(s) still have an ACTIVE Pit Table assignment");
+            errors.add(activeAssignments + " active customer Pit Table assignment(s) remain for the Business Date");
+        }
+
+        long activeStaffAssignments = staffAssignmentRepository
+                .findByBusinessDateAndEndedAtIsNullOrderByStartedAtAsc(businessDate).size();
+        if (activeStaffAssignments > 0) {
+            errors.add(activeStaffAssignments + " active staff Pit Table assignment(s) remain for the Business Date");
         }
 
         long positivePositions = 0;
@@ -106,15 +123,57 @@ public class BusinessDateValidationService {
             errors.add(negativePositions + " OPEN customer session(s) have inconsistent negative chip positions");
         }
 
-        long openTables = pitTableRepository
-                .findByStatusIgnoreCaseAndBusinessDate("OPEN", businessDate).size();
+        long closedPositivePositions = 0;
+        long closedNegativePositions = 0;
+        for (CustomerSession session : sessions) {
+            if (!"CLOSED".equalsIgnoreCase(session.getStatus())) continue;
+            int comparison = financialPositionService.getPosition(session.getId())
+                    .calculatedChipPosition().compareTo(BigDecimal.ZERO);
+            if (comparison > 0) closedPositivePositions++;
+            if (comparison < 0) closedNegativePositions++;
+        }
+        if (closedPositivePositions > 0) {
+            errors.add(closedPositivePositions
+                    + " inconsistent CLOSED customer session(s) have unresolved positive chip positions");
+        }
+        if (closedNegativePositions > 0) {
+            errors.add(closedNegativePositions
+                    + " inconsistent CLOSED customer session(s) have unresolved negative chip positions");
+        }
+
+        List<PitTable> tables = pitTableRepository.findByBusinessDate(businessDate);
+        long openTables = tables.stream().filter(table -> "OPEN".equalsIgnoreCase(table.getStatus())).count();
         if (openTables > 0) {
             errors.add(openTables + " Pit Table(s) still OPEN for the Business Date");
         }
 
+        validateOperationalCustody(sessions, tables, errors);
+
         validateCashierReconciliations(businessDate, errors);
         validateLegacyNonCashierBuckets(businessDate, errors);
         return errors;
+    }
+
+    private void validateOperationalCustody(
+            List<CustomerSession> sessions, List<PitTable> tables, List<String> errors) {
+        List<UUID> sessionIds = sessions.stream().map(CustomerSession::getId).toList();
+        long sessionCustody = sessionIds.isEmpty() ? 0 : custodyInventoryRepository
+                .summarizeCustomerSessions(sessionIds).stream()
+                .filter(summary -> summary.getCustodyTotal().compareTo(BigDecimal.ZERO) != 0)
+                .count();
+        if (sessionCustody > 0) {
+            errors.add(sessionCustody
+                    + " customer session(s) retain unresolved physical chip custody");
+        }
+
+        List<UUID> tableIds = tables.stream().map(PitTable::getId).toList();
+        long tableCustody = tableIds.isEmpty() ? 0 : custodyInventoryRepository
+                .summarizePitTables(tableIds).stream()
+                .filter(summary -> summary.getCustodyTotal().compareTo(BigDecimal.ZERO) != 0)
+                .count();
+        if (tableCustody > 0) {
+            errors.add(tableCustody + " Pit Table(s) retain unresolved physical chip custody");
+        }
     }
 
     private void validateCashierReconciliations(LocalDate businessDate, List<String> errors) {

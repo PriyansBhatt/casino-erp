@@ -12,6 +12,7 @@ import jakarta.persistence.LockModeType;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.time.LocalDate;
 
 public interface PitTableCustomerAssignmentRepository extends JpaRepository<PitTableCustomerAssignment, UUID> {
     List<PitTableCustomerAssignment> findByPitTableIdAndStatusOrderByJoinedAtAsc(
@@ -19,6 +20,8 @@ public interface PitTableCustomerAssignmentRepository extends JpaRepository<PitT
     List<PitTableCustomerAssignment> findByPitTableIdOrderByJoinedAtAsc(UUID pitTableId);
     Optional<PitTableCustomerAssignment> findByCustomerSessionIdAndStatus(
             UUID customerSessionId, PitTableCustomerAssignmentStatus status);
+    List<PitTableCustomerAssignment> findByBusinessDateAndStatusOrderByJoinedAtAsc(
+            LocalDate businessDate, PitTableCustomerAssignmentStatus status);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select assignment from PitTableCustomerAssignment assignment " +

@@ -13,6 +13,7 @@ import org.springframework.data.repository.query.Param;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.time.LocalDate;
 
 public interface PitTableStaffAssignmentRepository extends JpaRepository<PitTableStaffAssignment, UUID> {
     List<PitTableStaffAssignment> findByPitTableIdAndEndedAtIsNullOrderByAssignmentRoleAsc(UUID pitTableId);
@@ -20,6 +21,8 @@ public interface PitTableStaffAssignmentRepository extends JpaRepository<PitTabl
     Optional<PitTableStaffAssignment> findByPitTableIdAndAssignmentRoleAndEndedAtIsNull(
             UUID pitTableId, PitTableStaffAssignmentRole assignmentRole);
     List<PitTableStaffAssignment> findByStaffUserIdAndEndedAtIsNull(UUID staffUserId);
+    List<PitTableStaffAssignment> findByBusinessDateAndEndedAtIsNullOrderByStartedAtAsc(
+            LocalDate businessDate);
     Optional<PitTableStaffAssignment> findByStaffUserIdAndAssignmentRoleAndEndedAtIsNull(
             UUID staffUserId, PitTableStaffAssignmentRole assignmentRole);
     Optional<PitTableStaffAssignment> findByAssignmentIdempotencyKey(String key);
