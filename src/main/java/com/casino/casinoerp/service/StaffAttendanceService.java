@@ -2,12 +2,13 @@ package com.casino.casinoerp.service;
 
 import com.casino.casinoerp.dto.AttendanceEmployeeResponse;
 import com.casino.casinoerp.dto.StaffAttendanceResponse;
-import com.casino.casinoerp.entity.StaffAttendance;
-import com.casino.casinoerp.entity.StaffAttendanceStatus;
-import com.casino.casinoerp.entity.User;
+import com.casino.casinoerp.entity.*;
 import com.casino.casinoerp.exception.ResourceConflictException;
 import com.casino.casinoerp.repository.StaffAttendanceRepository;
 import com.casino.casinoerp.repository.UserRepository;
+import com.casino.casinoerp.repository.StaffProfileRepository;
+import com.casino.casinoerp.repository.StaffRosterAssignmentRepository;
+import com.casino.casinoerp.repository.ShiftDefinitionRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.access.AccessDeniedException;
@@ -16,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.*;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -27,6 +29,9 @@ public class StaffAttendanceService {
     private final AuthenticatedUserService authenticatedUsers;
     private final BusinessDateService businessDates;
     private final AuditLogService audit;
+    private final StaffProfileRepository staffProfiles;
+    private final StaffRosterAssignmentRepository rosters;
+    private final ShiftDefinitionRepository shifts;
     private final Clock clock;
 
     @Autowired
@@ -35,8 +40,12 @@ public class StaffAttendanceService {
             UserRepository userRepository,
             AuthenticatedUserService authenticatedUsers,
             BusinessDateService businessDates,
-            AuditLogService audit) {
+            AuditLogService audit,
+            StaffProfileRepository staffProfiles,
+            StaffRosterAssignmentRepository rosters,
+            ShiftDefinitionRepository shifts) {
         this(attendanceRepository, userRepository, authenticatedUsers, businessDates, audit,
+                staffProfiles, rosters, shifts,
                 Clock.system(CASINO_ZONE));
     }
 
@@ -46,12 +55,18 @@ public class StaffAttendanceService {
             AuthenticatedUserService authenticatedUsers,
             BusinessDateService businessDates,
             AuditLogService audit,
+            StaffProfileRepository staffProfiles,
+            StaffRosterAssignmentRepository rosters,
+            ShiftDefinitionRepository shifts,
             Clock clock) {
         this.attendanceRepository = attendanceRepository;
         this.userRepository = userRepository;
         this.authenticatedUsers = authenticatedUsers;
         this.businessDates = businessDates;
         this.audit = audit;
+        this.staffProfiles = staffProfiles;
+        this.rosters = rosters;
+        this.shifts = shifts;
         this.clock = clock;
     }
 
@@ -73,12 +88,14 @@ public class StaffAttendanceService {
         attendance.setBusinessDate(businessDates.resolveAttendanceBusinessDate(now));
         attendance.setStatus(StaffAttendanceStatus.OPEN);
         attendance.setCheckInAt(now);
+        matchRoster(user, now).ifPresent(match -> applyRosterSnapshot(attendance, match));
         attendance.setCreatedAt(now);
         attendance.setUpdatedAt(now);
         try {
             StaffAttendance saved = attendanceRepository.saveAndFlush(attendance);
             audit.log("STAFF_ATTENDANCE_CHECK_IN", "STAFF_ATTENDANCE", saved.getId(), user.getId(),
-                    "Staff attendance checked in for businessDate=" + saved.getBusinessDate());
+                    "Staff attendance checked in for businessDate=" + saved.getBusinessDate()
+                            + rosterAuditContext(saved));
             return response(saved);
         } catch (DataIntegrityViolationException exception) {
             throw new ResourceConflictException("Employee already has an OPEN attendance shift.");
@@ -151,8 +168,82 @@ public class StaffAttendanceService {
                 attendance.getId(),
                 new AttendanceEmployeeResponse(user.getId(), user.getUsername(), user.getFullName()),
                 attendance.getBusinessDate(), attendance.getStatus(), attendance.getCheckInAt(),
-                attendance.getCheckOutAt(), workedMinutes(attendance), attendance.getCreatedAt(),
+                attendance.getCheckOutAt(), workedMinutes(attendance), attendance.getRosterAssignmentId(),
+                attendance.getRosterAssignmentId() != null, attendance.getShiftCode(), attendance.getShiftName(),
+                attendance.getRosterDate(), attendance.getScheduledStartAt(), attendance.getScheduledEndAt(),
+                scheduleStatus(attendance), lateByMinutes(attendance), earlyDepartureMinutes(attendance), attendance.getCreatedAt(),
                 attendance.getUpdatedAt());
+    }
+
+    private Optional<RosterMatch> matchRoster(User user, Instant checkIn) {
+        Optional<StaffProfile> staff = staffProfiles.findByUserId(user.getId());
+        if (staff.isEmpty()) return Optional.empty();
+        LocalDate localDate = checkIn.atZone(CASINO_ZONE).toLocalDate();
+        List<RosterMatch> matches = rosters
+                .findByStaffProfileIdAndStatusAndRosterDateBetweenOrderByRosterDateAsc(
+                        staff.get().getId(), RosterStatus.SCHEDULED, localDate.minusDays(1), localDate.plusDays(1))
+                .stream()
+                .map(roster -> new RosterMatch(roster, shifts.findById(roster.getShiftDefinitionId())
+                        .orElseThrow(() -> new IllegalStateException("Roster references a missing Shift Definition."))))
+                .filter(match -> match.roster().getStatus() == RosterStatus.SCHEDULED)
+                .filter(match -> !checkIn.isBefore(match.matchStart()) && checkIn.isBefore(match.scheduledEnd()))
+                .toList();
+        return matches.size() == 1 ? Optional.of(matches.get(0)) : Optional.empty();
+    }
+
+    private void applyRosterSnapshot(StaffAttendance attendance, RosterMatch match) {
+        attendance.setRosterAssignmentId(match.roster().getId());
+        attendance.setRosterDate(match.roster().getRosterDate());
+        attendance.setShiftCode(match.shift().getCode());
+        attendance.setShiftName(match.shift().getName());
+        attendance.setScheduledStartAt(match.scheduledStart());
+        attendance.setScheduledEndAt(match.scheduledEnd());
+        attendance.setRosterLateGraceMinutes(match.shift().getLateGraceMinutes());
+        attendance.setRosterEarlyCheckInMinutes(match.shift().getEarlyCheckInMinutes());
+    }
+
+    private AttendanceScheduleStatus scheduleStatus(StaffAttendance attendance) {
+        if (attendance.getRosterAssignmentId() == null) return AttendanceScheduleStatus.UNSCHEDULED;
+        boolean late = attendance.getCheckInAt().isAfter(
+                attendance.getScheduledStartAt().plusSeconds(attendance.getRosterLateGraceMinutes() * 60L));
+        boolean early = attendance.getCheckOutAt() != null
+                && attendance.getCheckOutAt().isBefore(attendance.getScheduledEndAt());
+        if (late && early) return AttendanceScheduleStatus.LATE_AND_EARLY_DEPARTURE;
+        if (late) return AttendanceScheduleStatus.LATE;
+        if (early) return AttendanceScheduleStatus.EARLY_DEPARTURE;
+        return AttendanceScheduleStatus.ON_TIME;
+    }
+
+    private long lateByMinutes(StaffAttendance attendance) {
+        if (attendance.getScheduledStartAt() == null || !attendance.getCheckInAt().isAfter(attendance.getScheduledStartAt())) return 0;
+        return Duration.between(attendance.getScheduledStartAt(), attendance.getCheckInAt()).toMinutes();
+    }
+
+    private Long earlyDepartureMinutes(StaffAttendance attendance) {
+        if (attendance.getScheduledEndAt() == null || attendance.getCheckOutAt() == null) return null;
+        if (!attendance.getCheckOutAt().isBefore(attendance.getScheduledEndAt())) return 0L;
+        return Duration.between(attendance.getCheckOutAt(), attendance.getScheduledEndAt()).toMinutes();
+    }
+
+    private String rosterAuditContext(StaffAttendance attendance) {
+        return attendance.getRosterAssignmentId() == null ? ", roster=UNSCHEDULED"
+                : ", rosterAssignmentId=" + attendance.getRosterAssignmentId()
+                + ", shift=" + attendance.getShiftCode()
+                + ", scheduledStartAt=" + attendance.getScheduledStartAt()
+                + ", scheduledEndAt=" + attendance.getScheduledEndAt();
+    }
+
+    private record RosterMatch(StaffRosterAssignment roster, ShiftDefinition shift) {
+        private Instant scheduledStart() {
+            return roster.getRosterDate().atTime(shift.getStartTime()).atZone(CASINO_ZONE).toInstant();
+        }
+        private Instant scheduledEnd() {
+            LocalDate endDate = shift.isCrossesMidnight() ? roster.getRosterDate().plusDays(1) : roster.getRosterDate();
+            return endDate.atTime(shift.getEndTime()).atZone(CASINO_ZONE).toInstant();
+        }
+        private Instant matchStart() {
+            return scheduledStart().minusSeconds(shift.getEarlyCheckInMinutes() * 60L);
+        }
     }
 
     private Long workedMinutes(StaffAttendance attendance) {

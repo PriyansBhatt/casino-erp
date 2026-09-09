@@ -31,6 +31,30 @@ public class StaffAttendance {
     @Column(name = "check_out_at")
     private Instant checkOutAt;
 
+    @Column(name = "roster_assignment_id")
+    private UUID rosterAssignmentId;
+
+    @Column(name = "roster_date")
+    private LocalDate rosterDate;
+
+    @Column(name = "shift_code", length = 50)
+    private String shiftCode;
+
+    @Column(name = "shift_name", length = 150)
+    private String shiftName;
+
+    @Column(name = "scheduled_start_at")
+    private Instant scheduledStartAt;
+
+    @Column(name = "scheduled_end_at")
+    private Instant scheduledEndAt;
+
+    @Column(name = "roster_late_grace_minutes")
+    private Integer rosterLateGraceMinutes;
+
+    @Column(name = "roster_early_check_in_minutes")
+    private Integer rosterEarlyCheckInMinutes;
+
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 

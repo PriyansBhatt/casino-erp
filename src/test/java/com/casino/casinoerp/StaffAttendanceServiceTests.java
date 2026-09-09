@@ -7,6 +7,9 @@ import com.casino.casinoerp.entity.User;
 import com.casino.casinoerp.exception.ResourceConflictException;
 import com.casino.casinoerp.repository.StaffAttendanceRepository;
 import com.casino.casinoerp.repository.UserRepository;
+import com.casino.casinoerp.repository.StaffProfileRepository;
+import com.casino.casinoerp.repository.StaffRosterAssignmentRepository;
+import com.casino.casinoerp.repository.ShiftDefinitionRepository;
 import com.casino.casinoerp.service.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -28,6 +31,9 @@ class StaffAttendanceServiceTests {
     private final AuthenticatedUserService authenticatedUsers = mock(AuthenticatedUserService.class);
     private final BusinessDateService businessDates = mock(BusinessDateService.class);
     private final AuditLogService audit = mock(AuditLogService.class);
+    private final StaffProfileRepository staffProfiles = mock(StaffProfileRepository.class);
+    private final StaffRosterAssignmentRepository rosters = mock(StaffRosterAssignmentRepository.class);
+    private final ShiftDefinitionRepository shifts = mock(ShiftDefinitionRepository.class);
     private final User user = user("ACTIVE", "CASHIER");
     private MutableClock clock;
     private StaffAttendanceService service;
@@ -36,7 +42,7 @@ class StaffAttendanceServiceTests {
     void setUp() {
         clock = new MutableClock(at(2026, 9, 7, 12, 30));
         service = new StaffAttendanceService(attendance, users, authenticatedUsers,
-                businessDates, audit, clock);
+                businessDates, audit, staffProfiles, rosters, shifts, clock);
         when(authenticatedUsers.getRequiredUser()).thenReturn(user);
         when(users.findByIdForUpdate(user.getId())).thenReturn(Optional.of(user));
         when(businessDates.resolveAttendanceBusinessDate(any())).thenReturn(LocalDate.of(2026, 9, 7));
