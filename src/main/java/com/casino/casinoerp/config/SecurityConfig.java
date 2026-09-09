@@ -39,6 +39,12 @@ public class SecurityConfig {
                         .requestMatchers("/api/attendance/**")
                         .authenticated()
 
+                        .requestMatchers(HttpMethod.GET, "/api/hr/staff/me")
+                        .authenticated()
+
+                        .requestMatchers("/api/hr", "/api/hr/**")
+                        .hasAnyRole(Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())
+
                         .requestMatchers(HttpMethod.GET,
                                 "/api/pit-tables/*/mode", "/api/pit-tables/*/eligible-players")
                         .hasAnyRole(Role.DEALER.name(), Role.PIT_SUPERVISOR.name(), Role.SUPER_ADMIN.name())

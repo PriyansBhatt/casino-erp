@@ -136,6 +136,10 @@ public class RolePermissionService {
         return role == Role.DIRECTOR || role == Role.SUPER_ADMIN;
     }
 
+    public boolean canManageHr(Role role) {
+        return role == Role.DIRECTOR || role == Role.SUPER_ADMIN;
+    }
+
     public boolean canManageBusinessDate(String roleName) {
         return withRole(roleName, this::canManageBusinessDate);
     }
