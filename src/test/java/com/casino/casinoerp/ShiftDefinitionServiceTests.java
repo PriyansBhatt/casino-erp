@@ -1,0 +1,18 @@
+package com.casino.casinoerp;
+
+import com.casino.casinoerp.dto.*;import com.casino.casinoerp.entity.*;import com.casino.casinoerp.repository.*;import com.casino.casinoerp.security.Role;import com.casino.casinoerp.service.*;
+import org.junit.jupiter.api.*;import java.time.*;import java.util.*;
+import static org.assertj.core.api.Assertions.*;import static org.mockito.ArgumentMatchers.*;import static org.mockito.Mockito.*;
+
+class ShiftDefinitionServiceTests {
+    private final ShiftDefinitionRepository shifts=mock(ShiftDefinitionRepository.class);private final AuthenticatedUserService auth=mock(AuthenticatedUserService.class);private final CurrentUserRoleService roles=mock(CurrentUserRoleService.class);private final AuditLogService audit=mock(AuditLogService.class);private final ShiftDefinitionService service=new ShiftDefinitionService(shifts,auth,roles,new RolePermissionService(),audit);private final UUID actorId=UUID.randomUUID();
+    @BeforeEach void setup(){when(roles.getCurrentRole()).thenReturn(Optional.of(Role.DIRECTOR));User actor=new User();actor.setId(actorId);when(auth.getRequiredUser()).thenReturn(actor);when(shifts.saveAndFlush(any())).thenAnswer(i->{ShiftDefinition v=i.getArgument(0);v.setId(UUID.randomUUID());return v;});when(shifts.save(any())).thenAnswer(i->i.getArgument(0));}
+    @Test void createsCanonicalDayShiftAndAudit(){var result=service.create(create(" day ",LocalTime.of(13,0),LocalTime.of(23,0),false,5,30));assertThat(result.code()).isEqualTo("DAY");assertThat(result.crossesMidnight()).isFalse();verify(audit).log(eq("CREATE_SHIFT_DEFINITION"),eq("HR"),any(),eq(actorId),contains("DAY"));}
+    @Test void createsCrossMidnightShift(){assertThat(service.create(create("NIGHT",LocalTime.of(18,0),LocalTime.of(3,30),true,0,0)).crossesMidnight()).isTrue();}
+    @Test void rejectsInconsistentCrossMidnightFlag(){assertThatThrownBy(()->service.create(create("BAD",LocalTime.of(18,0),LocalTime.of(3,30),false,0,0))).hasMessageContaining("inconsistent");}
+    @Test void rejectsEqualTimes(){assertThatThrownBy(()->service.create(create("BAD",LocalTime.NOON,LocalTime.NOON,false,0,0))).hasMessageContaining("different");}
+    @Test void rejectsNegativeGrace(){assertThatThrownBy(()->service.create(create("BAD",LocalTime.NOON,LocalTime.of(20,0),false,-1,0))).hasMessageContaining("cannot be negative");}
+    @Test void rejectsDuplicateCodeCaseInsensitively(){when(shifts.existsByCodeIgnoreCase("NIGHT")).thenReturn(true);assertThatThrownBy(()->service.create(create(" night ",LocalTime.of(18,0),LocalTime.of(3,0),true,0,0))).hasMessage("Shift code already exists.");}
+    @Test void updateKeepsCodeImmutableAndCanDeactivate(){ShiftDefinition v=shift("NIGHT",true,LocalTime.of(18,0),LocalTime.of(3,30),true);when(shifts.findById(v.getId())).thenReturn(Optional.of(v));var result=service.update(v.getId(),new UpdateShiftDefinitionRequest("Night Updated",null,LocalTime.of(19,0),LocalTime.of(4,0),true,10,15,false));assertThat(result.code()).isEqualTo("NIGHT");assertThat(result.active()).isFalse();}
+    private CreateShiftDefinitionRequest create(String code,LocalTime start,LocalTime end,boolean crosses,int late,int early){return new CreateShiftDefinitionRequest(code,"Shift",null,start,end,crosses,late,early,true);}private ShiftDefinition shift(String code,boolean active,LocalTime start,LocalTime end,boolean crosses){ShiftDefinition v=new ShiftDefinition();v.setId(UUID.randomUUID());v.setCode(code);v.setName(code);v.setActive(active);v.setStartTime(start);v.setEndTime(end);v.setCrossesMidnight(crosses);v.setCreatedAt(LocalDateTime.now());v.setUpdatedAt(LocalDateTime.now());return v;}
+}
