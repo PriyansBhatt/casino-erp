@@ -23,6 +23,8 @@ class StaffLeaveLifecycleServiceTests {
     @Mock StaffLeaveRequestRepository requests;
     @Mock StaffProfileRepository profiles;
     @Mock LeaveTypeRepository leaveTypes;
+    @Mock StaffRosterAssignmentRepository rosters;
+    @Mock ShiftDefinitionRepository shifts;
     @Mock UserRepository users;
     @Mock AuthenticatedUserService authenticated;
     @Mock CurrentUserRoleService roles;
@@ -37,7 +39,7 @@ class StaffLeaveLifecycleServiceTests {
 
     @BeforeEach void setUp() {
         MockitoAnnotations.openMocks(this);
-        service = new StaffLeaveRequestService(requests, profiles, leaveTypes, users,
+        service = new StaffLeaveRequestService(requests, profiles, leaveTypes, rosters, shifts, users,
                 authenticated, roles, new RolePermissionService(), audit,
                 Clock.fixed(expectedNow.toInstant(ZoneOffset.UTC), ZoneOffset.UTC));
         manager = user("director", Role.DIRECTOR.name());
@@ -50,8 +52,13 @@ class StaffLeaveLifecycleServiceTests {
         when(roles.getCurrentRole()).thenReturn(Optional.of(Role.DIRECTOR));
         when(authenticated.getRequiredUser()).thenReturn(manager);
         when(requests.findByIdForUpdate(leave.getId())).thenReturn(Optional.of(leave));
+        when(requests.findById(leave.getId())).thenReturn(Optional.of(leave));
+        when(rosters.findByStaffProfileIdAndStatusAndRosterDateBetweenOrderByRosterDateAsc(
+                any(), eq(RosterStatus.SCHEDULED), any(), any())).thenReturn(List.of());
+        when(shifts.findAllById(any())).thenReturn(List.of());
         when(requests.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(profiles.findById(staff.getId())).thenReturn(Optional.of(staff));
+        when(profiles.findByIdForUpdate(staff.getId())).thenReturn(Optional.of(staff));
         when(profiles.findByUserId(employee.getId())).thenReturn(Optional.of(staff));
         when(leaveTypes.findById(type.getId())).thenReturn(Optional.of(type));
         when(users.findById(employee.getId())).thenReturn(Optional.of(employee));
@@ -184,6 +191,66 @@ class StaffLeaveLifecycleServiceTests {
         verify(requests, never()).findByIdForUpdate(any());
     }
 
+    @Test void approvalIsRejectedWhenScheduledRosterOverlapsLeaveAndLeavesRequestPending() {
+        ShiftDefinition shift = shift("DAY", LocalTime.of(13, 0), LocalTime.of(23, 0), false);
+        StaffRosterAssignment roster = roster(LocalDate.of(2026, 9, 15), shift, RosterStatus.SCHEDULED);
+        when(rosters.findByStaffProfileIdAndStatusAndRosterDateBetweenOrderByRosterDateAsc(
+                staff.getId(), RosterStatus.SCHEDULED, LocalDate.of(2026, 9, 13), LocalDate.of(2026, 9, 16)))
+                .thenReturn(List.of(roster));
+        when(shifts.findAllById(any())).thenReturn(List.of(shift));
+        assertThatThrownBy(() -> service.approve(leave.getId(), new ApproveStaffLeaveRequest("Approved")))
+                .isInstanceOf(ResourceConflictException.class).hasMessageContaining("scheduled roster");
+        assertThat(leave.getStatus()).isEqualTo(LeaveRequestStatus.PENDING);
+        verify(requests, never()).save(any());
+        verify(audit, never()).log(eq("APPROVE_LEAVE_REQUEST"), any(), any(), any(), any());
+    }
+
+    @Test void previousDayOvernightRosterOverlapsLeaveBeginningAfterMidnight() {
+        ShiftDefinition shift = shift("NIGHT", LocalTime.of(18, 0), LocalTime.of(3, 30), true);
+        StaffRosterAssignment roster = roster(leave.getStartDate().minusDays(1), shift, RosterStatus.SCHEDULED);
+        when(rosters.findByStaffProfileIdAndStatusAndRosterDateBetweenOrderByRosterDateAsc(any(), any(), any(), any()))
+                .thenReturn(List.of(roster));
+        when(shifts.findAllById(any())).thenReturn(List.of(shift));
+        assertThatThrownBy(() -> service.approve(leave.getId(), new ApproveStaffLeaveRequest(null)))
+                .isInstanceOf(ResourceConflictException.class);
+    }
+
+    @Test void nonOverlappingOrCancelledRosterDoesNotBlockApproval() {
+        ShiftDefinition shift = shift("DAY", LocalTime.of(13, 0), LocalTime.of(23, 0), false);
+        StaffRosterAssignment cancelled = roster(LocalDate.of(2026, 9, 15), shift, RosterStatus.CANCELLED);
+        when(rosters.findByStaffProfileIdAndStatusAndRosterDateBetweenOrderByRosterDateAsc(any(), any(), any(), any()))
+                .thenReturn(List.of(cancelled));
+        when(shifts.findAllById(any())).thenReturn(List.of(shift));
+        assertThat(service.approve(leave.getId(), new ApproveStaffLeaveRequest(null)).status())
+                .isEqualTo(LeaveRequestStatus.APPROVED);
+    }
+
+    @Test void scheduledRosterOutsideLeaveIntervalDoesNotBlockApproval() {
+        ShiftDefinition shift = shift("DAY", LocalTime.of(13, 0), LocalTime.of(23, 0), false);
+        StaffRosterAssignment roster = roster(leave.getStartDate().minusDays(1), shift, RosterStatus.SCHEDULED);
+        when(rosters.findByStaffProfileIdAndStatusAndRosterDateBetweenOrderByRosterDateAsc(any(), any(), any(), any()))
+                .thenReturn(List.of(roster));
+        when(shifts.findAllById(any())).thenReturn(List.of(shift));
+        assertThat(service.approve(leave.getId(), new ApproveStaffLeaveRequest(null)).status())
+                .isEqualTo(LeaveRequestStatus.APPROVED);
+    }
+
+    @Test void cancellingConflictingRosterAllowsLaterApprovalAndLocksStaffBeforeLeave() {
+        ShiftDefinition shift = shift("DAY", LocalTime.of(13, 0), LocalTime.of(23, 0), false);
+        StaffRosterAssignment roster = roster(LocalDate.of(2026, 9, 15), shift, RosterStatus.SCHEDULED);
+        when(rosters.findByStaffProfileIdAndStatusAndRosterDateBetweenOrderByRosterDateAsc(any(), any(), any(), any()))
+                .thenReturn(List.of(roster));
+        when(shifts.findAllById(any())).thenReturn(List.of(shift));
+        assertThatThrownBy(() -> service.approve(leave.getId(), new ApproveStaffLeaveRequest(null)))
+                .isInstanceOf(ResourceConflictException.class);
+        roster.setStatus(RosterStatus.CANCELLED);
+        assertThat(service.approve(leave.getId(), new ApproveStaffLeaveRequest(null)).status())
+                .isEqualTo(LeaveRequestStatus.APPROVED);
+        InOrder locks = inOrder(profiles, requests);
+        locks.verify(profiles, atLeastOnce()).findByIdForUpdate(staff.getId());
+        locks.verify(requests, atLeastOnce()).findByIdForUpdate(leave.getId());
+    }
+
     private StaffLeaveRequest request(LeaveRequestStatus status) {
         StaffLeaveRequest value = new StaffLeaveRequest(); value.setId(UUID.randomUUID());
         value.setStaffProfileId(staff.getId()); value.setLeaveTypeId(type.getId());
@@ -194,4 +261,14 @@ class StaffLeaveLifecycleServiceTests {
     }
     private User user(String username, String role) { User value = new User(); value.setId(UUID.randomUUID());
         value.setUsername(username); value.setFullName(username); value.setRole(role); return value; }
+    private ShiftDefinition shift(String code, LocalTime start, LocalTime end, boolean crossesMidnight) {
+        ShiftDefinition value = new ShiftDefinition(); value.setId(UUID.randomUUID()); value.setCode(code);
+        value.setName(code); value.setStartTime(start); value.setEndTime(end);
+        value.setCrossesMidnight(crossesMidnight); value.setActive(true); return value;
+    }
+    private StaffRosterAssignment roster(LocalDate rosterDate, ShiftDefinition shift, RosterStatus status) {
+        StaffRosterAssignment value = new StaffRosterAssignment(); value.setId(UUID.randomUUID());
+        value.setStaffProfileId(staff.getId()); value.setShiftDefinitionId(shift.getId());
+        value.setRosterDate(rosterDate); value.setStatus(status); return value;
+    }
 }

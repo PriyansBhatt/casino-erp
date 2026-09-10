@@ -22,6 +22,8 @@ class StaffLeaveRequestServiceTests {
     private final StaffLeaveRequestRepository requests = mock(StaffLeaveRequestRepository.class);
     private final StaffProfileRepository profiles = mock(StaffProfileRepository.class);
     private final LeaveTypeRepository leaveTypes = mock(LeaveTypeRepository.class);
+    private final StaffRosterAssignmentRepository rosters = mock(StaffRosterAssignmentRepository.class);
+    private final ShiftDefinitionRepository shifts = mock(ShiftDefinitionRepository.class);
     private final UserRepository users = mock(UserRepository.class);
     private final AuthenticatedUserService authenticated = mock(AuthenticatedUserService.class);
     private final CurrentUserRoleService roles = mock(CurrentUserRoleService.class);
@@ -32,7 +34,7 @@ class StaffLeaveRequestServiceTests {
     private StaffLeaveRequestService service;
 
     @BeforeEach void setUp() {
-        service = new StaffLeaveRequestService(requests, profiles, leaveTypes, users,
+        service = new StaffLeaveRequestService(requests, profiles, leaveTypes, rosters, shifts, users,
                 authenticated, roles, new RolePermissionService(), audit, Clock.systemUTC());
         when(authenticated.getRequiredUser()).thenReturn(employee);
         when(profiles.findByUserId(employee.getId())).thenReturn(Optional.of(staff));

@@ -28,6 +28,20 @@ public interface StaffLeaveRequestRepository extends JpaRepository<StaffLeaveReq
 
     @Query("""
             select request from StaffLeaveRequest request
+            where request.staffProfileId = :staffProfileId
+              and request.status = :status
+              and request.startDate <= :endDate
+              and request.endDate >= :startDate
+            order by request.startDate asc
+            """)
+    List<StaffLeaveRequest> findByStaffAndStatusOverlappingDates(
+            @Param("staffProfileId") UUID staffProfileId,
+            @Param("status") LeaveRequestStatus status,
+            @Param("startDate") LocalDate startDate,
+            @Param("endDate") LocalDate endDate);
+
+    @Query("""
+            select request from StaffLeaveRequest request
             where (:staffProfileId is null or request.staffProfileId = :staffProfileId)
               and (:departmentId is null or request.staffProfileId in
                   (select staff.id from StaffProfile staff where staff.departmentId = :departmentId))

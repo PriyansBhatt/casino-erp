@@ -20,6 +20,8 @@ public class StaffLeaveRequestService {
     private final StaffLeaveRequestRepository requests;
     private final StaffProfileRepository profiles;
     private final LeaveTypeRepository leaveTypes;
+    private final StaffRosterAssignmentRepository rosters;
+    private final ShiftDefinitionRepository shifts;
     private final UserRepository users;
     private final AuthenticatedUserService authenticatedUsers;
     private final CurrentUserRoleService currentRoles;
@@ -28,12 +30,15 @@ public class StaffLeaveRequestService {
     private final Clock clock;
 
     public StaffLeaveRequestService(StaffLeaveRequestRepository requests,
-            StaffProfileRepository profiles, LeaveTypeRepository leaveTypes, UserRepository users,
+            StaffProfileRepository profiles, LeaveTypeRepository leaveTypes,
+            StaffRosterAssignmentRepository rosters, ShiftDefinitionRepository shifts, UserRepository users,
             AuthenticatedUserService authenticatedUsers, CurrentUserRoleService currentRoles,
             RolePermissionService permissions, AuditLogService audit, Clock clock) {
         this.requests = requests;
         this.profiles = profiles;
         this.leaveTypes = leaveTypes;
+        this.rosters = rosters;
+        this.shifts = shifts;
         this.users = users;
         this.authenticatedUsers = authenticatedUsers;
         this.currentRoles = currentRoles;
@@ -114,8 +119,13 @@ public class StaffLeaveRequestService {
     public StaffLeaveRequestResponse approve(UUID id, ApproveStaffLeaveRequest request) {
         requireManager();
         User actor = authenticatedUsers.getRequiredUser();
+        StaffLeaveRequest preview = requests.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Leave Request not found."));
+        profiles.findByIdForUpdate(preview.getStaffProfileId())
+                .orElseThrow(() -> new ResourceNotFoundException("Staff Profile not found."));
         StaffLeaveRequest value = locked(id);
         requireStatus(value, LeaveRequestStatus.PENDING, "approve");
+        validateScheduledRoster(value);
         LocalDateTime now = now();
         value.setStatus(LeaveRequestStatus.APPROVED);
         value.setReviewedByUserId(actor.getId());
@@ -206,6 +216,34 @@ public class StaffLeaveRequestService {
                         + ", dates=" + value.getStartDate() + " to " + value.getEndDate()
                         + ", status=" + value.getStatus()
                         + (explanation == null ? "" : ", reason=" + explanation));
+    }
+
+    private void validateScheduledRoster(StaffLeaveRequest leave) {
+        List<StaffRosterAssignment> candidates = rosters
+                .findByStaffProfileIdAndStatusAndRosterDateBetweenOrderByRosterDateAsc(
+                        leave.getStaffProfileId(), RosterStatus.SCHEDULED,
+                        leave.getStartDate().minusDays(1), leave.getEndDate());
+        Set<UUID> shiftIds = new HashSet<>();
+        candidates.forEach(roster -> shiftIds.add(roster.getShiftDefinitionId()));
+        Map<UUID, ShiftDefinition> shiftById = new HashMap<>();
+        shifts.findAllById(shiftIds).forEach(shift -> shiftById.put(shift.getId(), shift));
+        ZonedDateTime leaveStart = leave.getStartDate().atStartOfDay(ZoneId.of("Asia/Kathmandu"));
+        ZonedDateTime leaveEnd = leave.getEndDate().plusDays(1).atStartOfDay(ZoneId.of("Asia/Kathmandu"));
+        for (StaffRosterAssignment roster : candidates) {
+            if (roster.getStatus() != RosterStatus.SCHEDULED) continue;
+            ShiftDefinition shift = shiftById.get(roster.getShiftDefinitionId());
+            if (shift == null) throw new IllegalStateException("Roster references a missing Shift Definition.");
+            ZonedDateTime rosterStart = roster.getRosterDate().atTime(shift.getStartTime())
+                    .atZone(ZoneId.of("Asia/Kathmandu"));
+            ZonedDateTime rosterEnd = (shift.isCrossesMidnight()
+                    ? roster.getRosterDate().plusDays(1) : roster.getRosterDate())
+                    .atTime(shift.getEndTime()).atZone(ZoneId.of("Asia/Kathmandu"));
+            if (rosterStart.isBefore(leaveEnd) && leaveStart.isBefore(rosterEnd)) {
+                throw new ResourceConflictException(
+                        "Leave cannot be approved because scheduled roster assignments conflict with the leave period."
+                                + " Roster date=" + roster.getRosterDate() + ", shift=" + shift.getCode() + ".");
+            }
+        }
     }
 
     private StaffLeaveRequestResponse response(StaffLeaveRequest value) {
