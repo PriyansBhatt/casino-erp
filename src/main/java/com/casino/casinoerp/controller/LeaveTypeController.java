@@ -19,6 +19,11 @@ public class LeaveTypeController {
         return ApiResponse.success("Leave Types loaded successfully", service.list());
     }
 
+    @GetMapping("/available")
+    public ApiResponse<List<LeaveTypeResponse>> available() {
+        return ApiResponse.success("Available Leave Types loaded successfully", service.available());
+    }
+
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<LeaveTypeResponse> create(@Valid @RequestBody CreateLeaveTypeRequest request) {

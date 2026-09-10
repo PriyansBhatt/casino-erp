@@ -8,4 +8,5 @@ import java.util.*;
 public interface LeaveTypeRepository extends JpaRepository<LeaveType, UUID> {
     boolean existsByCodeIgnoreCase(String code);
     List<LeaveType> findAllByOrderByNameAsc();
+    List<LeaveType> findByActiveTrueOrderByCodeAsc();
 }

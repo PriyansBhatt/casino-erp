@@ -26,6 +26,7 @@ public class StaffProfileService {
     }
 
     @Transactional(readOnly=true) public List<StaffProfileResponse> list(){requireManager();return responses(profiles.findAllByOrderByEmployeeCodeAsc());}
+    @Transactional(readOnly=true) public List<HrStaffUserCandidateResponse> candidates(){requireManager();return users.findUsersWithoutStaffProfileOrderByUsernameAsc().stream().map(user->new HrStaffUserCandidateResponse(user.getId(),user.getUsername(),user.getFullName(),user.getRole(),user.getStatus())).toList();}
     @Transactional(readOnly=true) public StaffProfileResponse get(UUID id){requireManager();return response(required(id));}
     @Transactional(readOnly=true) public StaffProfileResponse me(){User user=authenticatedUsers.getRequiredUser();return response(profiles.findByUserId(user.getId()).orElseThrow(()->new ResourceNotFoundException("Staff profile not found.")));}
 

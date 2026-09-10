@@ -48,6 +48,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/hr/leave/me")
                         .authenticated()
 
+                        .requestMatchers(HttpMethod.GET, "/api/hr/leave-types/available")
+                        .authenticated()
+
                         .requestMatchers(HttpMethod.POST, "/api/hr/leave")
                         .authenticated()
 

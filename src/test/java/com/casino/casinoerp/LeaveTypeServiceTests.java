@@ -64,6 +64,22 @@ class LeaveTypeServiceTests {
                 .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
     }
 
+    @Test void availableReturnsOnlyRepositoryFilteredActiveTypesInCodeOrder() {
+        LeaveType sick = leaveType("SICK", true), annual = leaveType("ANNUAL", true);
+        when(repository.findByActiveTrueOrderByCodeAsc()).thenReturn(List.of(annual, sick));
+        when(roles.getCurrentRole()).thenReturn(Optional.of(Role.CASHIER));
+        assertThat(service.available()).extracting(LeaveTypeResponse::code)
+                .containsExactly("ANNUAL", "SICK");
+        verify(repository).findByActiveTrueOrderByCodeAsc();
+        verify(repository, never()).findAllByOrderByNameAsc();
+    }
+
+    @Test void managementListStillIncludesRepositoryProvidedInactiveHistory() {
+        LeaveType inactive = leaveType("OLD", false);
+        when(repository.findAllByOrderByNameAsc()).thenReturn(List.of(inactive));
+        assertThat(service.list()).singleElement().extracting(LeaveTypeResponse::active).isEqualTo(false);
+    }
+
     private LeaveType saved(LeaveType value) { if (value.getId() == null) value.setId(UUID.randomUUID()); return value; }
     private LeaveType leaveType(String code, boolean active) { LeaveType v = new LeaveType(); v.setId(UUID.randomUUID()); v.setCode(code); v.setName(code); v.setActive(active); return v; }
     private User user() { User v = new User(); v.setId(UUID.randomUUID()); v.setUsername("director"); v.setFullName("Director"); v.setRole("DIRECTOR"); return v; }

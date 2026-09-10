@@ -14,6 +14,15 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     User findByUsername(String username);
     List<User> findByStatusIgnoreCaseOrderByUsernameAsc(String status);
 
+    @Query("""
+            select user from User user
+            where not exists (
+                select staff.id from StaffProfile staff where staff.userId = user.id
+            )
+            order by user.username asc, user.id asc
+            """)
+    List<User> findUsersWithoutStaffProfileOrderByUsernameAsc();
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select user from User user where user.id = :userId")
     java.util.Optional<User> findByIdForUpdate(@Param("userId") UUID userId);

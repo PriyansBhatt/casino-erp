@@ -30,6 +30,8 @@ class StaffLeaveSecurityTests {
     @ParameterizedTest
     @ValueSource(strings = {"CASHIER", "RECEPTIONIST", "PIT_SUPERVISOR", "DEALER", "DIRECTOR", "SUPER_ADMIN"})
     void authenticatedUsersCanUseOnlySelfServiceEndpoints(String role) throws Exception {
+        mvc.perform(get("/api/hr/leave-types/available").with(user(role).roles(role)))
+                .andExpect(status().isOk());
         mvc.perform(post("/api/hr/leave").with(user(role).roles(role))
                         .contentType("application/json").content(REQUEST))
                 .andExpect(status().isCreated());
@@ -73,6 +75,10 @@ class StaffLeaveSecurityTests {
         mvc.perform(post("/api/hr/leave/00000000-0000-0000-0000-000000000001/approve")
                         .with(user(role).roles(role)).contentType("application/json").content("{}"))
                 .andExpect(status().isForbidden());
+        mvc.perform(patch("/api/hr/leave-types/00000000-0000-0000-0000-000000000001")
+                        .with(user(role).roles(role)).contentType("application/json")
+                        .content("{\"name\":\"No\",\"active\":true}"))
+                .andExpect(status().isForbidden());
         mvc.perform(post("/api/hr/leave/00000000-0000-0000-0000-000000000001/reject")
                         .with(user(role).roles(role)).contentType("application/json").content(REASON))
                 .andExpect(status().isForbidden());
@@ -85,6 +91,7 @@ class StaffLeaveSecurityTests {
     }
 
     @Test void unauthenticatedAccessIsDenied() throws Exception {
+        mvc.perform(get("/api/hr/leave-types/available")).andExpect(status().isForbidden());
         mvc.perform(post("/api/hr/leave").contentType("application/json").content(REQUEST))
                 .andExpect(status().isForbidden());
         mvc.perform(get("/api/hr/leave/me")).andExpect(status().isForbidden());

@@ -36,6 +36,12 @@ public class LeaveTypeService {
         return leaveTypes.findAllByOrderByNameAsc().stream().map(this::response).toList();
     }
 
+    @Transactional(readOnly = true)
+    public List<LeaveTypeResponse> available() {
+        authenticatedUsers.getRequiredUser();
+        return leaveTypes.findByActiveTrueOrderByCodeAsc().stream().map(this::response).toList();
+    }
+
     @Transactional
     public LeaveTypeResponse create(CreateLeaveTypeRequest request) {
         requireManager();
