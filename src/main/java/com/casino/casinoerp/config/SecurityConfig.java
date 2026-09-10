@@ -51,6 +51,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/hr/leave")
                         .authenticated()
 
+                        .requestMatchers(HttpMethod.POST, "/api/hr/leave/me/*/cancel")
+                        .authenticated()
+
                         .requestMatchers("/api/hr", "/api/hr/**")
                         .hasAnyRole(Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())
 

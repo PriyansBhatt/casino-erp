@@ -33,7 +33,7 @@ class StaffLeaveRequestServiceTests {
 
     @BeforeEach void setUp() {
         service = new StaffLeaveRequestService(requests, profiles, leaveTypes, users,
-                authenticated, roles, new RolePermissionService(), audit);
+                authenticated, roles, new RolePermissionService(), audit, Clock.systemUTC());
         when(authenticated.getRequiredUser()).thenReturn(employee);
         when(profiles.findByUserId(employee.getId())).thenReturn(Optional.of(staff));
         when(profiles.findByIdForUpdate(staff.getId())).thenReturn(Optional.of(staff));

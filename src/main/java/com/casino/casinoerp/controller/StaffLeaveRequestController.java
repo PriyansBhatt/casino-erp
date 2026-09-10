@@ -49,4 +49,29 @@ public class StaffLeaveRequestController {
     public ApiResponse<StaffLeaveRequestResponse> get(@PathVariable UUID id) {
         return ApiResponse.success("Leave Request loaded successfully", service.get(id));
     }
+
+    @PostMapping("/{id}/approve")
+    public ApiResponse<StaffLeaveRequestResponse> approve(@PathVariable UUID id,
+            @Valid @RequestBody ApproveStaffLeaveRequest request) {
+        return ApiResponse.success("Leave Request approved successfully", service.approve(id, request));
+    }
+
+    @PostMapping("/{id}/reject")
+    public ApiResponse<StaffLeaveRequestResponse> reject(@PathVariable UUID id,
+            @Valid @RequestBody RejectStaffLeaveRequest request) {
+        return ApiResponse.success("Leave Request rejected successfully", service.reject(id, request));
+    }
+
+    @PostMapping("/{id}/cancel")
+    public ApiResponse<StaffLeaveRequestResponse> cancelByManagement(@PathVariable UUID id,
+            @Valid @RequestBody CancelStaffLeaveRequest request) {
+        return ApiResponse.success("Leave Request cancelled successfully",
+                service.cancelByManagement(id, request));
+    }
+
+    @PostMapping("/me/{id}/cancel")
+    public ApiResponse<StaffLeaveRequestResponse> cancelMine(@PathVariable UUID id,
+            @Valid @RequestBody CancelStaffLeaveRequest request) {
+        return ApiResponse.success("Leave Request cancelled successfully", service.cancelMine(id, request));
+    }
 }

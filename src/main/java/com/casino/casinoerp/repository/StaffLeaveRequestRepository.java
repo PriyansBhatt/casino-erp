@@ -1,6 +1,7 @@
 package com.casino.casinoerp.repository;
 
 import com.casino.casinoerp.entity.*;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.*;
 import org.springframework.data.repository.query.Param;
 
@@ -8,6 +9,10 @@ import java.time.LocalDate;
 import java.util.*;
 
 public interface StaffLeaveRequestRepository extends JpaRepository<StaffLeaveRequest, UUID> {
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select request from StaffLeaveRequest request where request.id = :id")
+    Optional<StaffLeaveRequest> findByIdForUpdate(@Param("id") UUID id);
+
     @Query("""
             select request from StaffLeaveRequest request
             where request.staffProfileId = :staffProfileId

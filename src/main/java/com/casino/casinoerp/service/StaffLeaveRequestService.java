@@ -25,11 +25,12 @@ public class StaffLeaveRequestService {
     private final CurrentUserRoleService currentRoles;
     private final RolePermissionService permissions;
     private final AuditLogService audit;
+    private final Clock clock;
 
     public StaffLeaveRequestService(StaffLeaveRequestRepository requests,
             StaffProfileRepository profiles, LeaveTypeRepository leaveTypes, UserRepository users,
             AuthenticatedUserService authenticatedUsers, CurrentUserRoleService currentRoles,
-            RolePermissionService permissions, AuditLogService audit) {
+            RolePermissionService permissions, AuditLogService audit, Clock clock) {
         this.requests = requests;
         this.profiles = profiles;
         this.leaveTypes = leaveTypes;
@@ -38,6 +39,7 @@ public class StaffLeaveRequestService {
         this.currentRoles = currentRoles;
         this.permissions = permissions;
         this.audit = audit;
+        this.clock = clock;
     }
 
     @Transactional
@@ -63,7 +65,7 @@ public class StaffLeaveRequestService {
                     "Leave Request overlaps an existing PENDING or APPROVED request.");
         }
 
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = now();
         StaffLeaveRequest value = new StaffLeaveRequest();
         value.setStaffProfileId(staff.getId());
         value.setLeaveTypeId(leaveType.getId());
@@ -108,7 +110,109 @@ public class StaffLeaveRequestService {
                 .orElseThrow(() -> new ResourceNotFoundException("Leave Request not found.")));
     }
 
+    @Transactional
+    public StaffLeaveRequestResponse approve(UUID id, ApproveStaffLeaveRequest request) {
+        requireManager();
+        User actor = authenticatedUsers.getRequiredUser();
+        StaffLeaveRequest value = locked(id);
+        requireStatus(value, LeaveRequestStatus.PENDING, "approve");
+        LocalDateTime now = now();
+        value.setStatus(LeaveRequestStatus.APPROVED);
+        value.setReviewedByUserId(actor.getId());
+        value.setReviewedAt(now);
+        value.setReviewReason(optionalText(request.remarks()));
+        value.setUpdatedAt(now);
+        value = requests.save(value);
+        auditLifecycle("APPROVE_LEAVE_REQUEST", value, actor, value.getReviewReason());
+        return response(value);
+    }
+
+    @Transactional
+    public StaffLeaveRequestResponse reject(UUID id, RejectStaffLeaveRequest request) {
+        requireManager();
+        User actor = authenticatedUsers.getRequiredUser();
+        StaffLeaveRequest value = locked(id);
+        requireStatus(value, LeaveRequestStatus.PENDING, "reject");
+        LocalDateTime now = now();
+        value.setStatus(LeaveRequestStatus.REJECTED);
+        value.setReviewedByUserId(actor.getId());
+        value.setReviewedAt(now);
+        value.setReviewReason(request.reason().trim());
+        value.setUpdatedAt(now);
+        value = requests.save(value);
+        auditLifecycle("REJECT_LEAVE_REQUEST", value, actor, value.getReviewReason());
+        return response(value);
+    }
+
+    @Transactional
+    public StaffLeaveRequestResponse cancelByManagement(UUID id, CancelStaffLeaveRequest request) {
+        requireManager();
+        User actor = authenticatedUsers.getRequiredUser();
+        StaffLeaveRequest value = locked(id);
+        if (value.getStatus() != LeaveRequestStatus.PENDING
+                && value.getStatus() != LeaveRequestStatus.APPROVED) {
+            throw transitionConflict(value, "cancel");
+        }
+        cancel(value, actor, request.reason());
+        auditLifecycle("CANCEL_LEAVE_REQUEST", value, actor, value.getCancellationReason());
+        return response(value);
+    }
+
+    @Transactional
+    public StaffLeaveRequestResponse cancelMine(UUID id, CancelStaffLeaveRequest request) {
+        User actor = authenticatedUsers.getRequiredUser();
+        StaffProfile staff = profiles.findByUserId(actor.getId())
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Authenticated user does not have a Staff Profile."));
+        StaffLeaveRequest value = locked(id);
+        if (!value.getStaffProfileId().equals(staff.getId())) {
+            throw new AccessDeniedException("Employees may cancel only their own Leave Requests.");
+        }
+        requireStatus(value, LeaveRequestStatus.PENDING, "cancel");
+        cancel(value, actor, request.reason());
+        auditLifecycle("CANCEL_LEAVE_REQUEST", value, actor, value.getCancellationReason());
+        return response(value);
+    }
+
+    private void cancel(StaffLeaveRequest value, User actor, String reason) {
+        LocalDateTime now = now();
+        value.setStatus(LeaveRequestStatus.CANCELLED);
+        value.setCancelledByUserId(actor.getId());
+        value.setCancelledAt(now);
+        value.setCancellationReason(reason.trim());
+        value.setUpdatedAt(now);
+        requests.save(value);
+    }
+
+    private StaffLeaveRequest locked(UUID id) {
+        return requests.findByIdForUpdate(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Leave Request not found."));
+    }
+
+    private void requireStatus(StaffLeaveRequest value, LeaveRequestStatus expected, String action) {
+        if (value.getStatus() != expected) throw transitionConflict(value, action);
+    }
+
+    private ResourceConflictException transitionConflict(StaffLeaveRequest value, String action) {
+        return new ResourceConflictException("Leave Request in status " + value.getStatus()
+                + " cannot be " + action + "d.");
+    }
+
+    private void auditLifecycle(String action, StaffLeaveRequest value, User actor, String explanation) {
+        LeaveType type = leaveTypes.findById(value.getLeaveTypeId()).orElse(null);
+        audit.log(action, "HR", value.getId(), actor.getId(),
+                "StaffProfile=" + value.getStaffProfileId()
+                        + ", Leave Type=" + (type == null ? value.getLeaveTypeId() : type.getCode())
+                        + ", dates=" + value.getStartDate() + " to " + value.getEndDate()
+                        + ", status=" + value.getStatus()
+                        + (explanation == null ? "" : ", reason=" + explanation));
+    }
+
     private StaffLeaveRequestResponse response(StaffLeaveRequest value) {
+        return response(value, lifecycleActors(List.of(value)));
+    }
+
+    private StaffLeaveRequestResponse response(StaffLeaveRequest value, Map<UUID, User> lifecycleActors) {
         StaffProfile staff = profiles.findById(value.getStaffProfileId()).orElse(null);
         User user = staff == null ? null : users.findById(staff.getUserId()).orElse(null);
         LeaveType leaveType = leaveTypes.findById(value.getLeaveTypeId()).orElse(null);
@@ -121,12 +225,34 @@ public class StaffLeaveRequestService {
                         leaveType.getId(), leaveType.getCode(), leaveType.getName());
         return new StaffLeaveRequestResponse(value.getId(), staffSummary, typeSummary,
                 value.getStartDate(), value.getEndDate(), calendarDays(value.getStartDate(), value.getEndDate()),
-                value.getReason(), value.getStatus(), value.getSubmittedAt(),
+                value.getReason(), value.getStatus(), actor(value.getReviewedByUserId(), lifecycleActors), value.getReviewedAt(),
+                value.getReviewReason(), actor(value.getCancelledByUserId(), lifecycleActors), value.getCancelledAt(),
+                value.getCancellationReason(), value.getSubmittedAt(),
                 value.getCreatedAt(), value.getUpdatedAt());
     }
 
+    private StaffLeaveRequestResponse.ActorSummary actor(UUID id, Map<UUID, User> actors) {
+        if (id == null) return null;
+        User user = actors.get(id);
+        return user == null ? null : new StaffLeaveRequestResponse.ActorSummary(
+                user.getId(), user.getUsername(), user.getFullName());
+    }
+
     private List<StaffLeaveRequestResponse> responses(List<StaffLeaveRequest> values) {
-        return values.stream().map(this::response).toList();
+        Map<UUID, User> actors = lifecycleActors(values);
+        return values.stream().map(value -> response(value, actors)).toList();
+    }
+
+    private Map<UUID, User> lifecycleActors(Collection<StaffLeaveRequest> values) {
+        Set<UUID> ids = new HashSet<>();
+        for (StaffLeaveRequest value : values) {
+            if (value.getReviewedByUserId() != null) ids.add(value.getReviewedByUserId());
+            if (value.getCancelledByUserId() != null) ids.add(value.getCancelledByUserId());
+        }
+        if (ids.isEmpty()) return Map.of();
+        Map<UUID, User> result = new HashMap<>();
+        users.findAllById(ids).forEach(user -> result.put(user.getId(), user));
+        return result;
     }
 
     private long calendarDays(LocalDate start, LocalDate end) {
@@ -145,5 +271,14 @@ public class StaffLeaveRequestService {
         if (!currentRoles.getCurrentRole().map(permissions::canManageHr).orElse(false)) {
             throw new AccessDeniedException("Leave management is restricted to Director or Super Admin.");
         }
+    }
+
+    private LocalDateTime now() {
+        return LocalDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);
+    }
+
+    private String optionalText(String value) {
+        if (value == null || value.isBlank()) return null;
+        return value.trim();
     }
 }

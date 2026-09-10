@@ -25,6 +25,7 @@ class StaffLeaveSecurityTests {
     @MockitoBean JwtService jwt;
     private static final String TYPE = "{\"code\":\"ANNUAL\",\"name\":\"Annual\",\"active\":true}";
     private static final String REQUEST = "{\"leaveTypeId\":\"00000000-0000-0000-0000-000000000001\",\"startDate\":\"2026-09-14\",\"endDate\":\"2026-09-16\",\"reason\":\"Family leave\"}";
+    private static final String REASON = "{\"reason\":\"Operational coverage required\"}";
 
     @ParameterizedTest
     @ValueSource(strings = {"CASHIER", "RECEPTIONIST", "PIT_SUPERVISOR", "DEALER", "DIRECTOR", "SUPER_ADMIN"})
@@ -49,6 +50,15 @@ class StaffLeaveSecurityTests {
         mvc.perform(get("/api/hr/leave").with(user(role).roles(role))).andExpect(status().isOk());
         mvc.perform(get("/api/hr/leave/00000000-0000-0000-0000-000000000001")
                         .with(user(role).roles(role))).andExpect(status().isOk());
+        mvc.perform(post("/api/hr/leave/00000000-0000-0000-0000-000000000001/approve")
+                        .with(user(role).roles(role)).contentType("application/json").content("{}"))
+                .andExpect(status().isOk());
+        mvc.perform(post("/api/hr/leave/00000000-0000-0000-0000-000000000001/reject")
+                        .with(user(role).roles(role)).contentType("application/json").content(REASON))
+                .andExpect(status().isOk());
+        mvc.perform(post("/api/hr/leave/00000000-0000-0000-0000-000000000001/cancel")
+                        .with(user(role).roles(role)).contentType("application/json").content(REASON))
+                .andExpect(status().isOk());
     }
 
     @ParameterizedTest
@@ -60,11 +70,40 @@ class StaffLeaveSecurityTests {
         mvc.perform(get("/api/hr/leave").with(user(role).roles(role))).andExpect(status().isForbidden());
         mvc.perform(get("/api/hr/leave/00000000-0000-0000-0000-000000000001")
                         .with(user(role).roles(role))).andExpect(status().isForbidden());
+        mvc.perform(post("/api/hr/leave/00000000-0000-0000-0000-000000000001/approve")
+                        .with(user(role).roles(role)).contentType("application/json").content("{}"))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/api/hr/leave/00000000-0000-0000-0000-000000000001/reject")
+                        .with(user(role).roles(role)).contentType("application/json").content(REASON))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/api/hr/leave/00000000-0000-0000-0000-000000000001/cancel")
+                        .with(user(role).roles(role)).contentType("application/json").content(REASON))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/api/hr/leave/me/00000000-0000-0000-0000-000000000001/cancel")
+                        .with(user(role).roles(role)).contentType("application/json").content(REASON))
+                .andExpect(status().isOk());
     }
 
     @Test void unauthenticatedAccessIsDenied() throws Exception {
         mvc.perform(post("/api/hr/leave").contentType("application/json").content(REQUEST))
                 .andExpect(status().isForbidden());
         mvc.perform(get("/api/hr/leave/me")).andExpect(status().isForbidden());
+        mvc.perform(post("/api/hr/leave/me/00000000-0000-0000-0000-000000000001/cancel")
+                        .contentType("application/json").content(REASON))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test void lifecycleReasonsAndRemarksAreValidatedAtTheApiBoundary() throws Exception {
+        var director = user("director").roles("DIRECTOR");
+        mvc.perform(post("/api/hr/leave/00000000-0000-0000-0000-000000000001/reject")
+                        .with(director).contentType("application/json").content("{\"reason\":\"   \"}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/hr/leave/00000000-0000-0000-0000-000000000001/cancel")
+                        .with(director).contentType("application/json").content("{\"reason\":\"\"}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/hr/leave/00000000-0000-0000-0000-000000000001/approve")
+                        .with(director).contentType("application/json")
+                        .content("{\"remarks\":\"" + "x".repeat(501) + "\"}"))
+                .andExpect(status().isBadRequest());
     }
 }

@@ -146,8 +146,11 @@ class StaffLeaveMigrationTests {
     private int insertRequest(UUID staff, UUID type, String status,
             LocalDate start, LocalDate end, String reason) {
         Timestamp now = Timestamp.valueOf(LocalDateTime.now());
-        return jdbc.update("insert into casino.staff_leave_requests(id,staff_profile_id,leave_type_id,start_date,end_date,reason,status,submitted_at,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,?)",
-                UUID.randomUUID(), staff, type, java.sql.Date.valueOf(start), java.sql.Date.valueOf(end), reason, status, now, now, now);
+        UUID reviewer = "REJECTED".equals(status)
+                ? jdbc.queryForObject("select id from core.users order by created_at limit 1", UUID.class) : null;
+        return jdbc.update("insert into casino.staff_leave_requests(id,staff_profile_id,leave_type_id,start_date,end_date,reason,status,submitted_at,reviewed_by_user_id,reviewed_at,review_reason,created_at,updated_at) values(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                UUID.randomUUID(), staff, type, java.sql.Date.valueOf(start), java.sql.Date.valueOf(end), reason,
+                status, now, reviewer, reviewer == null ? null : now, reviewer == null ? null : "Rejected for test", now, now);
     }
 
     private boolean table(String name) { return Boolean.TRUE.equals(jdbc.queryForObject("select to_regclass('casino.' || ?) is not null", Boolean.class, name)); }

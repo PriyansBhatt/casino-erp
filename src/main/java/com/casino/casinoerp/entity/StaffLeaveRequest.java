@@ -19,6 +19,12 @@ public class StaffLeaveRequest {
     @Column(nullable = false, length = 1000) private String reason;
     @Enumerated(EnumType.STRING) @Column(nullable = false, length = 20) private LeaveRequestStatus status;
     @Column(name = "submitted_at", nullable = false) private LocalDateTime submittedAt;
+    @Column(name = "reviewed_by_user_id") private UUID reviewedByUserId;
+    @Column(name = "reviewed_at") private LocalDateTime reviewedAt;
+    @Column(name = "review_reason", length = 500) private String reviewReason;
+    @Column(name = "cancelled_by_user_id") private UUID cancelledByUserId;
+    @Column(name = "cancelled_at") private LocalDateTime cancelledAt;
+    @Column(name = "cancellation_reason", length = 500) private String cancellationReason;
     @Column(name = "created_at", nullable = false) private LocalDateTime createdAt;
     @Column(name = "updated_at", nullable = false) private LocalDateTime updatedAt;
 }

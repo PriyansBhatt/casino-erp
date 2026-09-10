@@ -15,6 +15,12 @@ public record StaffLeaveRequestResponse(
         long calendarDays,
         String reason,
         LeaveRequestStatus status,
+        ActorSummary reviewedBy,
+        LocalDateTime reviewedAt,
+        String reviewReason,
+        ActorSummary cancelledBy,
+        LocalDateTime cancelledAt,
+        String cancellationReason,
         LocalDateTime submittedAt,
         LocalDateTime createdAt,
         LocalDateTime updatedAt
@@ -22,4 +28,5 @@ public record StaffLeaveRequestResponse(
     public record StaffSummary(UUID staffProfileId, UUID userId, String employeeCode,
                                String username, String fullName) {}
     public record LeaveTypeSummary(UUID id, String code, String name) {}
+    public record ActorSummary(UUID id, String username, String fullName) {}
 }
