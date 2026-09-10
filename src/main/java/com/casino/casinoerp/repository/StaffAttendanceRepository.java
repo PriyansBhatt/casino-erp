@@ -14,6 +14,10 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface StaffAttendanceRepository extends JpaRepository<StaffAttendance, UUID> {
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select attendance from StaffAttendance attendance where attendance.id = :id")
+    Optional<StaffAttendance> findByIdForUpdate(@Param("id") UUID id);
+
     Optional<StaffAttendance> findFirstByUserIdAndStatusOrderByCheckInAtDesc(
             UUID userId, StaffAttendanceStatus status);
 

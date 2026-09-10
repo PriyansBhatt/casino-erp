@@ -2,7 +2,11 @@ package com.casino.casinoerp.controller;
 
 import com.casino.casinoerp.dto.ApiResponse;
 import com.casino.casinoerp.dto.StaffAttendanceResponse;
+import com.casino.casinoerp.dto.CreateStaffAttendanceCorrectionRequest;
+import com.casino.casinoerp.dto.StaffAttendanceCorrectionResponse;
 import com.casino.casinoerp.service.StaffAttendanceService;
+import com.casino.casinoerp.service.StaffAttendanceCorrectionService;
+import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
 
@@ -13,9 +17,12 @@ import java.util.List;
 @RequestMapping("/api/attendance")
 public class StaffAttendanceController {
     private final StaffAttendanceService service;
+    private final StaffAttendanceCorrectionService correctionService;
 
-    public StaffAttendanceController(StaffAttendanceService service) {
+    public StaffAttendanceController(StaffAttendanceService service,
+            StaffAttendanceCorrectionService correctionService) {
         this.service = service;
+        this.correctionService = correctionService;
     }
 
     @PostMapping("/check-in")
@@ -46,5 +53,20 @@ public class StaffAttendanceController {
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate businessDate) {
         return ApiResponse.success("Business Date attendance report loaded successfully",
                 service.report(businessDate));
+    }
+
+    @PostMapping("/{attendanceId}/corrections")
+    public ApiResponse<StaffAttendanceCorrectionResponse> correct(
+            @PathVariable java.util.UUID attendanceId,
+            @Valid @RequestBody CreateStaffAttendanceCorrectionRequest request) {
+        return ApiResponse.success("Attendance correction recorded successfully",
+                correctionService.correct(attendanceId, request));
+    }
+
+    @GetMapping("/{attendanceId}/corrections")
+    public ApiResponse<List<StaffAttendanceCorrectionResponse>> correctionHistory(
+            @PathVariable java.util.UUID attendanceId) {
+        return ApiResponse.success("Attendance correction history loaded successfully",
+                correctionService.history(attendanceId));
     }
 }

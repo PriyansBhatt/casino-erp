@@ -36,6 +36,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/attendance")
                         .hasAnyRole(Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())
 
+                        .requestMatchers("/api/attendance/*/corrections")
+                        .hasAnyRole(Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())
+
                         .requestMatchers("/api/attendance/**")
                         .authenticated()
 
