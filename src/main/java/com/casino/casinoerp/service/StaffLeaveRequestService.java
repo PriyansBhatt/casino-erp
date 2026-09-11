@@ -254,6 +254,11 @@ public class StaffLeaveRequestService {
         StaffProfile staff = profiles.findById(value.getStaffProfileId()).orElse(null);
         User user = staff == null ? null : users.findById(staff.getUserId()).orElse(null);
         LeaveType leaveType = leaveTypes.findById(value.getLeaveTypeId()).orElse(null);
+        return response(value, lifecycleActors, staff, user, leaveType);
+    }
+
+    private StaffLeaveRequestResponse response(StaffLeaveRequest value, Map<UUID, User> lifecycleActors,
+            StaffProfile staff, User user, LeaveType leaveType) {
         StaffLeaveRequestResponse.StaffSummary staffSummary = staff == null ? null
                 : new StaffLeaveRequestResponse.StaffSummary(staff.getId(), staff.getUserId(),
                         staff.getEmployeeCode(), user == null ? null : user.getUsername(),
@@ -277,20 +282,31 @@ public class StaffLeaveRequestService {
     }
 
     private List<StaffLeaveRequestResponse> responses(List<StaffLeaveRequest> values) {
-        Map<UUID, User> actors = lifecycleActors(values);
-        return values.stream().map(value -> response(value, actors)).toList();
+        Map<UUID, StaffProfile> staffById = HrReferenceLookup.load(values.stream()
+                .map(StaffLeaveRequest::getStaffProfileId).toList(), profiles::findAllById, StaffProfile::getId);
+        Map<UUID, LeaveType> typeById = HrReferenceLookup.load(values.stream()
+                .map(StaffLeaveRequest::getLeaveTypeId).toList(), leaveTypes::findAllById, LeaveType::getId);
+        Set<UUID> userIds = lifecycleActorIds(values);
+        staffById.values().forEach(staff -> userIds.add(staff.getUserId()));
+        Map<UUID, User> userById = HrReferenceLookup.load(userIds, users::findAllById, User::getId);
+        return values.stream().map(value -> {
+            StaffProfile staff = staffById.get(value.getStaffProfileId());
+            return response(value, userById, staff, staff == null ? null : userById.get(staff.getUserId()),
+                    typeById.get(value.getLeaveTypeId()));
+        }).toList();
     }
 
     private Map<UUID, User> lifecycleActors(Collection<StaffLeaveRequest> values) {
+        return HrReferenceLookup.load(lifecycleActorIds(values), users::findAllById, User::getId);
+    }
+
+    private Set<UUID> lifecycleActorIds(Collection<StaffLeaveRequest> values) {
         Set<UUID> ids = new HashSet<>();
         for (StaffLeaveRequest value : values) {
             if (value.getReviewedByUserId() != null) ids.add(value.getReviewedByUserId());
             if (value.getCancelledByUserId() != null) ids.add(value.getCancelledByUserId());
         }
-        if (ids.isEmpty()) return Map.of();
-        Map<UUID, User> result = new HashMap<>();
-        users.findAllById(ids).forEach(user -> result.put(user.getId(), user));
-        return result;
+        return ids;
     }
 
     private long calendarDays(LocalDate start, LocalDate end) {

@@ -50,6 +50,42 @@ class StaffLeaveRequestServiceTests {
         });
     }
 
+    @Test void listAndMineBulkLoadStaffTypeAndLifecycleUsersWithoutChangingContent() {
+        when(roles.getCurrentRole()).thenReturn(Optional.of(Role.DIRECTOR));
+        User reviewer=user("reviewer","DIRECTOR");
+        StaffLeaveRequest first=new StaffLeaveRequest();
+        first.setId(UUID.randomUUID()); first.setStaffProfileId(staff.getId()); first.setLeaveTypeId(annual.getId());
+        first.setStartDate(LocalDate.of(2026,9,14)); first.setEndDate(LocalDate.of(2026,9,16));
+        first.setStatus(LeaveRequestStatus.CANCELLED); first.setReviewedByUserId(reviewer.getId());
+        first.setCancelledByUserId(employee.getId()); first.setReviewReason("approved"); first.setCancellationReason("changed plans");
+        StaffLeaveRequest second=new StaffLeaveRequest();
+        second.setId(UUID.randomUUID()); second.setStaffProfileId(staff.getId()); second.setLeaveTypeId(annual.getId());
+        second.setStartDate(LocalDate.of(2026,9,20)); second.setEndDate(second.getStartDate());
+        second.setStatus(LeaveRequestStatus.PENDING);
+        when(requests.findById(first.getId())).thenReturn(Optional.of(first));
+        when(requests.findById(second.getId())).thenReturn(Optional.of(second));
+        when(users.findAllById(Set.of(reviewer.getId(),employee.getId()))).thenReturn(List.of(reviewer,employee));
+        var expected=List.of(service.get(first.getId()),service.get(second.getId()));
+        when(requests.search(null,null,null,null,null,null)).thenReturn(List.of(first,second));
+        when(requests.search(staff.getId(),null,null,null,null,null)).thenReturn(List.of(first,second));
+        when(profiles.findAllById(Set.of(staff.getId()))).thenReturn(List.of(staff));
+        when(leaveTypes.findAllById(Set.of(annual.getId()))).thenReturn(List.of(annual));
+        clearInvocations(profiles,leaveTypes,users);
+        assertThat(service.list(null,null,null,null,null,null)).containsExactlyElementsOf(expected);
+        assertThat(service.mine(null,null,null)).containsExactlyElementsOf(expected);
+        verify(profiles,times(2)).findAllById(Set.of(staff.getId()));
+        verify(profiles).findByUserId(employee.getId());
+        verify(leaveTypes,times(2)).findAllById(Set.of(annual.getId()));
+        verify(users,times(2)).findAllById(Set.of(reviewer.getId(),employee.getId()));
+        verifyNoMoreInteractions(profiles,leaveTypes,users);
+    }
+
+    @Test void emptyListDoesNotLoadReferences() {
+        when(roles.getCurrentRole()).thenReturn(Optional.of(Role.DIRECTOR));
+        assertThat(service.list(null,null,null,null,null,null)).isEmpty();
+        verifyNoInteractions(profiles,leaveTypes,users);
+    }
+
     @Test void activeEmployeeCreatesPrincipalOwnedPendingRequestAndAudit() {
         StaffLeaveRequestResponse result = service.create(request(
                 LocalDate.of(2026, 9, 14), LocalDate.of(2026, 9, 16)));

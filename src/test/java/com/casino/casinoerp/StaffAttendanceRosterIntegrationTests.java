@@ -179,6 +179,18 @@ class StaffAttendanceRosterIntegrationTests {
         assertThat(closed.scheduledEndAt()).isEqualTo(at(2026, 9, 11, 3, 30));
         assertThat(closed.earlyDepartureMinutes()).isEqualTo(30);
         assertThat(closed.attendanceScheduleStatus()).isEqualTo(AttendanceScheduleStatus.EARLY_DEPARTURE);
+
+        user.setRole("DIRECTOR");
+        when(attendance.findByBusinessDateOrderByCheckInAtAsc(stored.getBusinessDate()))
+                .thenReturn(List.of(stored));
+        when(attendance.findByUserIdOrderByCheckInAtDesc(user.getId())).thenReturn(List.of(stored));
+        when(attendance.findByUserIdAndBusinessDateOrderByCheckInAtDesc(user.getId(), stored.getBusinessDate()))
+                .thenReturn(List.of(stored));
+        clearInvocations(users, staffProfiles, rosters, shifts);
+        assertThat(service.report(stored.getBusinessDate())).containsExactly(closed);
+        assertThat(service.myHistory(null)).containsExactly(closed);
+        assertThat(service.myHistory(stored.getBusinessDate())).containsExactly(closed);
+        verifyNoInteractions(users, staffProfiles, rosters, shifts);
     }
 
     @Test void openAttendanceNeverReportsEarlyDeparture() {

@@ -27,5 +27,32 @@ class StaffRosterServiceTests {
     @Test void rosterEndingExactlyAtLeaveMidnightDoesNotOverlap(){when(shifts.findById(shiftId)).thenReturn(Optional.of(shift(shiftId,"EVENING",LocalTime.of(18,0),LocalTime.MIDNIGHT,true,true)));assertThat(service.create(request(shiftId,date)).status()).isEqualTo(RosterStatus.SCHEDULED);verify(leaveRequests).findByStaffAndStatusOverlappingDates(staffId,LeaveRequestStatus.APPROVED,date,date);}
     @Test void updateIntoApprovedLeaveIsRejectedUnderStaffAndRosterLocks(){UUID id=UUID.randomUUID();StaffRosterAssignment current=roster(id,shiftId,date.minusDays(1),RosterStatus.SCHEDULED);when(rosters.findById(id)).thenReturn(Optional.of(current));when(rosters.findByIdForUpdate(id)).thenReturn(Optional.of(current));when(leaveRequests.findByStaffAndStatusOverlappingDates(staffId,LeaveRequestStatus.APPROVED,date,date)).thenReturn(List.of(leave(LeaveRequestStatus.APPROVED,date,date)));assertThatThrownBy(()->service.update(id,new UpdateStaffRosterRequest(shiftId,date,null))).hasMessageContaining("approved leave");InOrder order=inOrder(profiles,rosters);order.verify(profiles).findByIdForUpdate(staffId);order.verify(rosters).findByIdForUpdate(id);}
     @Test void updateOutsideApprovedLeaveIsAllowed(){UUID id=UUID.randomUUID();StaffRosterAssignment current=roster(id,shiftId,date.minusDays(1),RosterStatus.SCHEDULED);when(rosters.findById(id)).thenReturn(Optional.of(current));when(rosters.findByIdForUpdate(id)).thenReturn(Optional.of(current));assertThat(service.update(id,new UpdateStaffRosterRequest(shiftId,date,null)).rosterDate()).isEqualTo(date);}
+    @Test void listBulkLoadsReferencesAndPreservesDetailContentAndFilters() {
+        StaffRosterAssignment first=roster(UUID.randomUUID(),shiftId,date,RosterStatus.SCHEDULED);
+        StaffRosterAssignment second=roster(UUID.randomUUID(),shiftId,date.plusDays(1),RosterStatus.SCHEDULED);
+        ShiftDefinition night=shift(shiftId,"NIGHT",LocalTime.of(18,0),LocalTime.of(3,30),true,true);
+        when(shifts.findById(shiftId)).thenReturn(Optional.of(night));
+        when(rosters.findById(first.getId())).thenReturn(Optional.of(first));
+        when(rosters.findById(second.getId())).thenReturn(Optional.of(second));
+        var expected=List.of(service.get(first.getId()),service.get(second.getId()));
+        UUID departmentId=UUID.randomUUID();
+        when(rosters.search(date,date.plusDays(1),staffId,departmentId,shiftId,RosterStatus.SCHEDULED)).thenReturn(List.of(first,second));
+        when(profiles.findAllById(Set.of(staffId))).thenReturn(List.of(staff(EmploymentStatus.ACTIVE)));
+        when(shifts.findAllById(Set.of(shiftId))).thenReturn(List.of(night));
+        when(users.findAllById(Set.of(userId))).thenReturn(List.of(user(userId,"employee")));
+        clearInvocations(rosters,profiles,shifts,users);
+        assertThat(service.list(date,date.plusDays(1),staffId,departmentId,shiftId,RosterStatus.SCHEDULED)).containsExactlyElementsOf(expected);
+        verify(rosters).search(date,date.plusDays(1),staffId,departmentId,shiftId,RosterStatus.SCHEDULED);
+        verify(profiles).findAllById(Set.of(staffId));
+        verify(shifts).findAllById(Set.of(shiftId));
+        verify(users).findAllById(Set.of(userId));
+        verifyNoMoreInteractions(rosters,profiles,shifts,users);
+    }
+
+    @Test void emptyListDoesNotLoadReferences() {
+        assertThat(service.list(null,null,null,null,null,null)).isEmpty();
+        verifyNoInteractions(profiles,shifts,users);
+    }
+
     private CreateStaffRosterRequest request(UUID shift,LocalDate rosterDate){return new CreateStaffRosterRequest(staffId,shift,rosterDate,null);}private StaffProfile staff(EmploymentStatus status){StaffProfile v=new StaffProfile();v.setId(staffId);v.setUserId(userId);v.setEmployeeCode("EMP-1");v.setEmploymentStatus(status);return v;}private ShiftDefinition shift(UUID id,String code,LocalTime start,LocalTime end,boolean crosses,boolean active){ShiftDefinition v=new ShiftDefinition();v.setId(id);v.setCode(code);v.setName(code);v.setStartTime(start);v.setEndTime(end);v.setCrossesMidnight(crosses);v.setActive(active);v.setCreatedAt(LocalDateTime.now());v.setUpdatedAt(LocalDateTime.now());return v;}private StaffRosterAssignment roster(UUID id,UUID shift,LocalDate rosterDate,RosterStatus status){StaffRosterAssignment v=new StaffRosterAssignment();v.setId(id);v.setStaffProfileId(staffId);v.setShiftDefinitionId(shift);v.setRosterDate(rosterDate);v.setStatus(status);v.setCreatedAt(LocalDateTime.now());v.setUpdatedAt(LocalDateTime.now());return v;}private StaffLeaveRequest leave(LeaveRequestStatus status,LocalDate start,LocalDate end){StaffLeaveRequest v=new StaffLeaveRequest();v.setId(UUID.randomUUID());v.setStaffProfileId(staffId);v.setStatus(status);v.setStartDate(start);v.setEndDate(end);return v;}private User user(UUID id,String name){User v=new User();v.setId(id);v.setUsername(name);v.setFullName(name);return v;}
 }

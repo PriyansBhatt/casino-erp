@@ -61,10 +61,31 @@ public class StaffProfileService {
     private StaffProfile required(UUID id){return profiles.findById(id).orElseThrow(()->new ResourceNotFoundException("Staff profile not found."));}
     private void requireManager(){if(!currentRoles.getCurrentRole().map(permissions::canManageHr).orElse(false))throw new AccessDeniedException("HR management is restricted to Director or Super Admin.");}
     private String canonical(String v){return v.trim().toUpperCase(Locale.ROOT);} private String normalize(String v){return v==null||v.isBlank()?null:v.trim();}
-    private List<StaffProfileResponse> responses(List<StaffProfile> values){return values.stream().map(this::response).toList();}
+    private List<StaffProfileResponse> responses(List<StaffProfile> values) {
+        Map<UUID, StaffProfile> managers = HrReferenceLookup.load(values.stream()
+                .map(StaffProfile::getReportingManagerStaffProfileId).toList(), profiles::findAllById, StaffProfile::getId);
+        Set<UUID> userIds = new HashSet<>();
+        values.forEach(value -> userIds.add(value.getUserId()));
+        managers.values().forEach(manager -> userIds.add(manager.getUserId()));
+        Map<UUID, User> userById = HrReferenceLookup.load(userIds, users::findAllById, User::getId);
+        Map<UUID, Department> departmentById = HrReferenceLookup.load(values.stream()
+                .map(StaffProfile::getDepartmentId).toList(), departments::findAllById, Department::getId);
+        Map<UUID, JobTitle> titleById = HrReferenceLookup.load(values.stream()
+                .map(StaffProfile::getJobTitleId).toList(), jobTitles::findAllById, JobTitle::getId);
+        return values.stream().map(value -> {
+            StaffProfile manager = value.getReportingManagerStaffProfileId() == null
+                    ? null : managers.get(value.getReportingManagerStaffProfileId());
+            return response(value, userById.get(value.getUserId()), departmentById.get(value.getDepartmentId()),
+                    titleById.get(value.getJobTitleId()), manager, manager == null ? null : userById.get(manager.getUserId()));
+        }).toList();
+    }
     private StaffProfileResponse response(StaffProfile v){
         User user=users.findById(v.getUserId()).orElse(null); Department department=departments.findById(v.getDepartmentId()).orElse(null); JobTitle title=jobTitles.findById(v.getJobTitleId()).orElse(null);
         StaffProfile manager=v.getReportingManagerStaffProfileId()==null?null:profiles.findById(v.getReportingManagerStaffProfileId()).orElse(null); User managerUser=manager==null?null:users.findById(manager.getUserId()).orElse(null);
+        return response(v, user, department, title, manager, managerUser);
+    }
+    private StaffProfileResponse response(StaffProfile v, User user, Department department,
+            JobTitle title, StaffProfile manager, User managerUser) {
         return new StaffProfileResponse(v.getId(),v.getUserId(),user==null?null:user.getUsername(),user==null?null:user.getFullName(),v.getEmployeeCode(),master(department),master(title),v.getEmploymentStatus(),v.getEmploymentType(),v.getDateOfJoining(),v.getPhone(),manager==null?null:new StaffProfileResponse.StaffManagerSummary(manager.getId(),manager.getEmployeeCode(),managerUser==null?null:managerUser.getUsername(),managerUser==null?null:managerUser.getFullName()),v.getRemarks(),v.getCreatedAt(),v.getUpdatedAt());
     }
     private HrMasterDataResponse master(Department v){return v==null?null:new HrMasterDataResponse(v.getId(),v.getCode(),v.getName(),v.getDescription(),v.isActive(),v.getSortOrder(),v.getCreatedAt(),v.getUpdatedAt());}

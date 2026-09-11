@@ -20,7 +20,7 @@ public class StaffRosterService {
     public StaffRosterService(StaffRosterAssignmentRepository rosters,StaffProfileRepository profiles,ShiftDefinitionRepository shifts,
             StaffLeaveRequestRepository leaveRequests,UserRepository users,AuthenticatedUserService authenticatedUsers,CurrentUserRoleService currentRoles,RolePermissionService permissions,AuditLogService audit){this.rosters=rosters;this.profiles=profiles;this.shifts=shifts;this.leaveRequests=leaveRequests;this.users=users;this.authenticatedUsers=authenticatedUsers;this.currentRoles=currentRoles;this.permissions=permissions;this.audit=audit;}
 
-    @Transactional(readOnly=true) public List<StaffRosterResponse> list(LocalDate from,LocalDate to,UUID staff,UUID department,UUID shift,RosterStatus status){requireManager();if(from!=null&&to!=null&&to.isBefore(from))throw new IllegalArgumentException("Roster end date cannot be before start date.");return rosters.search(from,to,staff,department,shift,status).stream().map(this::response).toList();}
+    @Transactional(readOnly=true) public List<StaffRosterResponse> list(LocalDate from,LocalDate to,UUID staff,UUID department,UUID shift,RosterStatus status){requireManager();if(from!=null&&to!=null&&to.isBefore(from))throw new IllegalArgumentException("Roster end date cannot be before start date.");return responses(rosters.search(from,to,staff,department,shift,status));}
     @Transactional(readOnly=true) public StaffRosterResponse get(UUID id){requireManager();return response(required(id));}
     @Transactional public StaffRosterResponse create(CreateStaffRosterRequest request){
         requireManager();StaffProfile staff=eligibleStaffForUpdate(request.staffProfileId());ShiftDefinition shift=activeShift(request.shiftDefinitionId());validateApprovedLeave(staff.getId(),request.rosterDate(),shift);validateNoOverlap(null,staff.getId(),request.rosterDate(),shift);
@@ -47,6 +47,20 @@ public class StaffRosterService {
     private StaffRosterAssignment required(UUID id){return rosters.findById(id).orElseThrow(()->new ResourceNotFoundException("Staff roster assignment not found."));}
     private void requireManager(){if(!currentRoles.getCurrentRole().map(permissions::canManageHr).orElse(false))throw new AccessDeniedException("HR management is restricted to Director or Super Admin.");}
     private String normalize(String v){return v==null||v.isBlank()?null:v.trim();}private String reference(StaffRosterAssignment v,StaffProfile s,ShiftDefinition shift){return "Employee code="+s.getEmployeeCode()+", shift="+shift.getCode()+", rosterDate="+v.getRosterDate();}
-    private StaffRosterResponse response(StaffRosterAssignment v){StaffProfile staff=profiles.findById(v.getStaffProfileId()).orElse(null);ShiftDefinition shift=shifts.findById(v.getShiftDefinitionId()).orElse(null);User user=staff==null?null:users.findById(staff.getUserId()).orElse(null);return new StaffRosterResponse(v.getId(),staff==null?null:new StaffRosterResponse.StaffReference(staff.getId(),staff.getUserId(),staff.getEmployeeCode(),user==null?null:user.getUsername(),user==null?null:user.getFullName()),shift==null?null:new ShiftDefinitionResponse(shift.getId(),shift.getCode(),shift.getName(),shift.getDescription(),shift.getStartTime(),shift.getEndTime(),shift.isCrossesMidnight(),shift.getLateGraceMinutes(),shift.getEarlyCheckInMinutes(),shift.isActive(),shift.getCreatedAt(),shift.getUpdatedAt()),v.getRosterDate(),shift==null?null:start(v.getRosterDate(),shift),shift==null?null:end(v.getRosterDate(),shift),v.getStatus(),v.getRemarks(),v.getCancellationReason(),v.getCancelledBy(),v.getCancelledAt(),v.getCreatedAt(),v.getUpdatedAt());}
+    private StaffRosterResponse response(StaffRosterAssignment v){StaffProfile staff=profiles.findById(v.getStaffProfileId()).orElse(null);ShiftDefinition shift=shifts.findById(v.getShiftDefinitionId()).orElse(null);User user=staff==null?null:users.findById(staff.getUserId()).orElse(null);return response(v,staff,shift,user);}
+    private StaffRosterResponse response(StaffRosterAssignment v,StaffProfile staff,ShiftDefinition shift,User user){return new StaffRosterResponse(v.getId(),staff==null?null:new StaffRosterResponse.StaffReference(staff.getId(),staff.getUserId(),staff.getEmployeeCode(),user==null?null:user.getUsername(),user==null?null:user.getFullName()),shift==null?null:new ShiftDefinitionResponse(shift.getId(),shift.getCode(),shift.getName(),shift.getDescription(),shift.getStartTime(),shift.getEndTime(),shift.isCrossesMidnight(),shift.getLateGraceMinutes(),shift.getEarlyCheckInMinutes(),shift.isActive(),shift.getCreatedAt(),shift.getUpdatedAt()),v.getRosterDate(),shift==null?null:start(v.getRosterDate(),shift),shift==null?null:end(v.getRosterDate(),shift),v.getStatus(),v.getRemarks(),v.getCancellationReason(),v.getCancelledBy(),v.getCancelledAt(),v.getCreatedAt(),v.getUpdatedAt());}
+    private List<StaffRosterResponse> responses(List<StaffRosterAssignment> values) {
+        Map<UUID, StaffProfile> staffById = HrReferenceLookup.load(values.stream()
+                .map(StaffRosterAssignment::getStaffProfileId).toList(), profiles::findAllById, StaffProfile::getId);
+        Map<UUID, ShiftDefinition> shiftById = HrReferenceLookup.load(values.stream()
+                .map(StaffRosterAssignment::getShiftDefinitionId).toList(), shifts::findAllById, ShiftDefinition::getId);
+        Map<UUID, User> userById = HrReferenceLookup.load(staffById.values().stream()
+                .map(StaffProfile::getUserId).toList(), users::findAllById, User::getId);
+        return values.stream().map(value -> {
+            StaffProfile staff = staffById.get(value.getStaffProfileId());
+            return response(value, staff, shiftById.get(value.getShiftDefinitionId()),
+                    staff == null ? null : userById.get(staff.getUserId()));
+        }).toList();
+    }
     private record ScheduledInterval(ZonedDateTime start,ZonedDateTime end){}
 }

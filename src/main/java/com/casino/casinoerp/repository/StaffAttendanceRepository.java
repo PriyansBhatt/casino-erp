@@ -4,6 +4,7 @@ import com.casino.casinoerp.entity.StaffAttendance;
 import com.casino.casinoerp.entity.StaffAttendanceStatus;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -31,10 +32,13 @@ public interface StaffAttendanceRepository extends JpaRepository<StaffAttendance
             @Param("userId") UUID userId,
             @Param("status") StaffAttendanceStatus status);
 
+    @EntityGraph(attributePaths = "user")
     List<StaffAttendance> findByUserIdOrderByCheckInAtDesc(UUID userId);
 
+    @EntityGraph(attributePaths = "user")
     List<StaffAttendance> findByUserIdAndBusinessDateOrderByCheckInAtDesc(
             UUID userId, LocalDate businessDate);
 
+    @EntityGraph(attributePaths = "user")
     List<StaffAttendance> findByBusinessDateOrderByCheckInAtAsc(LocalDate businessDate);
 }

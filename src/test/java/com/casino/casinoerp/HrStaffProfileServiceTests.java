@@ -32,6 +32,43 @@ class HrStaffProfileServiceTests {
     @Test void noEligibleCandidatesReturnsEmptyList(){when(users.findUsersWithoutStaffProfileOrderByUsernameAsc()).thenReturn(List.of());assertThat(service.candidates()).isEmpty();}
     @Test void candidateDiscoveryRequiresHrManager(){when(roles.getCurrentRole()).thenReturn(Optional.of(Role.RECEPTIONIST));assertThatThrownBy(service::candidates).isInstanceOf(org.springframework.security.access.AccessDeniedException.class);verify(users,never()).findUsersWithoutStaffProfileOrderByUsernameAsc();}
 
+    @Test void listBulkLoadsReferencesAndPreservesDetailContent() {
+        StaffProfile manager = new StaffProfile();
+        manager.setId(UUID.randomUUID()); manager.setUserId(actorId); manager.setEmployeeCode("MGR");
+        StaffProfile first = new StaffProfile();
+        first.setId(UUID.randomUUID()); first.setUserId(userId); first.setEmployeeCode("EMP-1");
+        first.setDepartmentId(departmentId); first.setJobTitleId(titleId);
+        first.setReportingManagerStaffProfileId(manager.getId());
+        StaffProfile second = new StaffProfile();
+        second.setId(UUID.randomUUID()); second.setUserId(actorId); second.setEmployeeCode("EMP-2");
+        second.setDepartmentId(departmentId); second.setJobTitleId(titleId);
+        when(profiles.findById(first.getId())).thenReturn(Optional.of(first));
+        when(profiles.findById(second.getId())).thenReturn(Optional.of(second));
+        when(profiles.findById(manager.getId())).thenReturn(Optional.of(manager));
+        when(users.findById(actorId)).thenReturn(Optional.of(user(actorId,"director")));
+        var expected = List.of(service.get(first.getId()), service.get(second.getId()));
+        when(profiles.findAllByOrderByEmployeeCodeAsc()).thenReturn(List.of(first,second));
+        when(profiles.findAllById(Set.of(manager.getId()))).thenReturn(List.of(manager));
+        when(users.findAllById(Set.of(userId,actorId))).thenReturn(List.of(user(actorId,"director"),user(userId,"employee")));
+        when(departments.findAllById(Set.of(departmentId))).thenReturn(List.of(department(true)));
+        when(titles.findAllById(Set.of(titleId))).thenReturn(List.of(title(true)));
+        clearInvocations(profiles,users,departments,titles);
+        assertThat(service.list()).containsExactlyElementsOf(expected);
+        verify(profiles).findAllByOrderByEmployeeCodeAsc();
+        verify(profiles).findAllById(Set.of(manager.getId()));
+        verify(users).findAllById(Set.of(userId,actorId));
+        verify(departments).findAllById(Set.of(departmentId));
+        verify(titles).findAllById(Set.of(titleId));
+        verifyNoMoreInteractions(profiles,users,departments,titles);
+    }
+
+    @Test void emptyListDoesNotLoadReferences() {
+        assertThat(service.list()).isEmpty();
+        verify(profiles).findAllByOrderByEmployeeCodeAsc();
+        verifyNoMoreInteractions(profiles);
+        verifyNoInteractions(users,departments,titles);
+    }
+
     private CreateStaffProfileRequest request(String code,UUID manager){return new CreateStaffProfileRequest(userId,code,departmentId,titleId,EmploymentStatus.ACTIVE,EmploymentType.FULL_TIME,LocalDate.of(2026,9,9),null,manager,null);}
     private Department department(boolean active){Department v=new Department();v.setId(departmentId);v.setCode("HR");v.setName("HR");v.setActive(active);return v;}
     private JobTitle title(boolean active){JobTitle v=new JobTitle();v.setId(titleId);v.setCode("OFFICER");v.setName("Officer");v.setActive(active);return v;}
