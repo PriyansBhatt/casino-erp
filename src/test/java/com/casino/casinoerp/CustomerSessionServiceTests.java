@@ -27,6 +27,7 @@ import org.mockito.ArgumentCaptor;
 import java.time.LocalDate;
 import java.math.BigDecimal;
 import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -73,6 +74,55 @@ class CustomerSessionServiceTests {
         when(customerService.getRequiredCustomer(customerId)).thenReturn(activeCustomer());
         when(businessDateService.getCurrentBusinessDate()).thenReturn(businessDate);
         when(repository.save(any(CustomerSession.class))).thenAnswer(invocation -> invocation.getArgument(0));
+    }
+
+    @Test
+    void receptionDateFilterUsesRepositoryAndPreservesLegacyValues() {
+        CustomerSession historical = openSessionEntity(UUID.randomUUID());
+        historical.setEntryTime(businessDate.plusDays(2).atTime(17, 27, 29));
+        historical.setStatus("CLOSED");
+        historical.setExitTime(null);
+        when(repository.findByBusinessDateOrderByEntryTimeAsc(businessDate))
+                .thenReturn(List.of(historical));
+
+        var result = service.getAllReceptionSessions(businessDate);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.getFirst().businessDate()).isEqualTo(businessDate);
+        assertThat(result.getFirst().entryTime()).isEqualTo(historical.getEntryTime());
+        assertThat(result.getFirst().status()).isEqualTo("CLOSED");
+        assertThat(result.getFirst().exitTime()).isNull();
+        verify(repository).findByBusinessDateOrderByEntryTimeAsc(businessDate);
+        verify(repository, never()).findAll();
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void distinctDatesUseSeparateExactRepositoryQueriesAndEmptyDateStaysEmpty() {
+        CustomerSession first = openSessionEntity(UUID.randomUUID());
+        CustomerSession second = openSessionEntity(UUID.randomUUID());
+        second.setBusinessDate(businessDate.plusDays(1));
+        when(repository.findByBusinessDateOrderByEntryTimeAsc(businessDate)).thenReturn(List.of(first));
+        when(repository.findByBusinessDateOrderByEntryTimeAsc(businessDate.plusDays(1))).thenReturn(List.of(second));
+        when(repository.findByBusinessDateOrderByEntryTimeAsc(businessDate.plusDays(2))).thenReturn(List.of());
+
+        assertThat(service.getAllReceptionSessions(businessDate))
+                .extracting(ReceptionSessionResponse::id).containsExactly(first.getId());
+        assertThat(service.getAllReceptionSessions(businessDate.plusDays(1)))
+                .extracting(ReceptionSessionResponse::id).containsExactly(second.getId());
+        assertThat(service.getAllReceptionSessions(businessDate.plusDays(2))).isEmpty();
+        verify(repository, never()).findAll();
+    }
+
+    @Test
+    void omittedBusinessDatePreservesUnfilteredCompatibility() {
+        CustomerSession legacy = openSessionEntity(UUID.randomUUID());
+        legacy.setBusinessDate(null);
+        legacy.setStatus("active");
+        when(repository.findAll()).thenReturn(List.of(legacy));
+        assertThat(service.getAllReceptionSessions(null)).hasSize(1);
+        assertThat(service.getAllReceptionSessions()).extracting(ReceptionSessionResponse::status)
+                .containsExactly("active");
     }
 
     @Test

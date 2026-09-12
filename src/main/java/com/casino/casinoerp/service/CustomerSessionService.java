@@ -59,7 +59,13 @@ public class CustomerSessionService {
     }
 
     public List<ReceptionSessionResponse> getAllReceptionSessions() {
-        return getAllSessions()
+        return getAllReceptionSessions(null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ReceptionSessionResponse> getAllReceptionSessions(LocalDate businessDate) {
+        return (businessDate == null ? repository.findAll()
+                : repository.findByBusinessDateOrderByEntryTimeAsc(businessDate))
                 .stream()
                 .map(this::toReceptionResponse)
                 .toList();

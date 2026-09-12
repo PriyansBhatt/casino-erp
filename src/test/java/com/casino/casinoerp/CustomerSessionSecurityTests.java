@@ -19,8 +19,10 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
+import java.util.List;
 
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -85,6 +87,76 @@ class CustomerSessionSecurityTests {
     void unauthenticatedUserCannotReadActiveCustomerSession() throws Exception {
         mockMvc.perform(get("/api/sessions/active/customer/{customerId}", CUSTOMER_ID))
                 .andExpect(status().isForbidden());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"RECEPTIONIST", "DIRECTOR", "SUPER_ADMIN"})
+    void authorizedListRolesCanSelectExactBusinessDate(String role) throws Exception {
+        LocalDate date = LocalDate.of(2026, 8, 8);
+        when(customerSessionService.getAllReceptionSessions(date)).thenReturn(List.of(activeSession()));
+        mockMvc.perform(get("/api/sessions").param("businessDate", date.toString())
+                        .with(user(role).roles(role)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].businessDate").value(date.toString()));
+        verify(customerSessionService).getAllReceptionSessions(date);
+    }
+
+    @Test
+    void emptyFilteredDateReturnsEmptyList() throws Exception {
+        LocalDate date = LocalDate.of(2026, 9, 5);
+        when(customerSessionService.getAllReceptionSessions(date)).thenReturn(List.of());
+        mockMvc.perform(get("/api/sessions").param("businessDate", date.toString())
+                        .with(user("reception").roles("RECEPTIONIST")))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
+        verify(customerSessionService).getAllReceptionSessions(date);
+    }
+
+    @Test
+    void unfilteredListRemainsCompatible() throws Exception {
+        when(customerSessionService.getAllReceptionSessions(null)).thenReturn(List.of(activeSession()));
+        mockMvc.perform(get("/api/sessions").with(user("director").roles("DIRECTOR")))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1));
+        verify(customerSessionService).getAllReceptionSessions(null);
+    }
+
+    @Test
+    void invalidDateIsRejected() throws Exception {
+        mockMvc.perform(get("/api/sessions").param("businessDate", "2026-09-32")
+                        .with(user("reception").roles("RECEPTIONIST")))
+                .andExpect(status().isBadRequest());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"ADMIN", "CASHIER", "PIT_SUPERVISOR", "DEALER", "AUDITOR"})
+    void filteredListDoesNotExpandAuthorization(String role) throws Exception {
+        mockMvc.perform(get("/api/sessions").param("businessDate", "2026-09-02")
+                        .with(user(role).roles(role)))
+                .andExpect(status().isForbidden());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"DIRECTOR", "ADMIN"})
+    void viewOrFrontendRolesDoNotGainMutationPermission(String role) throws Exception {
+        mockMvc.perform(post("/api/sessions").with(user(role).roles(role))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"customerId\":\"" + CUSTOMER_ID + "\"}"))
+                .andExpect(status().isForbidden());
+        mockMvc.perform(post("/api/sessions/{sessionId}/close", SESSION_ID).with(user(role).roles(role)))
+                .andExpect(status().isForbidden());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"RECEPTIONIST", "SUPER_ADMIN"})
+    void authorizedMutationRolesRemainAllowed(String role) throws Exception {
+        when(customerSessionService.openSession(CUSTOMER_ID)).thenReturn(activeSession());
+        when(customerSessionService.closeSession(SESSION_ID)).thenReturn(activeSession());
+        mockMvc.perform(post("/api/sessions").with(user(role).roles(role))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"customerId\":\"" + CUSTOMER_ID + "\"}"))
+                .andExpect(status().isOk());
+        mockMvc.perform(post("/api/sessions/{sessionId}/close", SESSION_ID).with(user(role).roles(role)))
+                .andExpect(status().isOk());
     }
 
     private ReceptionSessionResponse activeSession() {

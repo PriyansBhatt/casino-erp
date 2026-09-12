@@ -4,9 +4,11 @@ import com.casino.casinoerp.dto.OpenCustomerSessionRequest;
 import com.casino.casinoerp.dto.ReceptionSessionResponse;
 import com.casino.casinoerp.service.CustomerSessionService;
 import jakarta.validation.Valid;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.time.LocalDate;
 
 @RestController
 @RequestMapping("/api/sessions")
@@ -31,8 +33,10 @@ public class CustomerSessionController {
     }
 
     @GetMapping
-    public List<ReceptionSessionResponse> getAllSessions() {
-        return customerSessionService.getAllReceptionSessions();
+    public List<ReceptionSessionResponse> getAllSessions(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate businessDate
+    ) {
+        return customerSessionService.getAllReceptionSessions(businessDate);
     }
 
     @GetMapping("/active/customer/{customerId}")
