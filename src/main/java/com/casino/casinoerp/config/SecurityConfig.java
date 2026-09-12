@@ -261,6 +261,7 @@ public class SecurityConfig {
                         .denyAll()
 
                         .requestMatchers(HttpMethod.GET,
+                                "/api/dashboard/management",
                                 "/api/dashboard/pit-summary",
                                 "/api/dashboard/table-results",
                                 "/api/dashboard/pit-performance",
