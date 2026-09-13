@@ -65,7 +65,7 @@ class ChipBuyInSecurityTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"RECEPTIONIST", "DIRECTOR"})
+    @ValueSource(strings = {"RECEPTIONIST", "DIRECTOR", "ADMIN", "PIT_SUPERVISOR", "DEALER"})
     void otherAuthenticatedRolesCannotCreateBuyIn(String role) throws Exception {
         mockMvc.perform(post("/api/buyins")
                         .with(user(role.toLowerCase()).roles(role))
@@ -115,6 +115,35 @@ class ChipBuyInSecurityTests {
     void receptionistCannotReadCurrentBusinessDateHistory() throws Exception {
         mockMvc.perform(get("/api/buyins/current")
                         .with(user("reception").roles("RECEPTIONIST")))
+                .andExpect(status().isForbidden());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"1.5", "10.0", "1e1", "\"10\"", "9223372036854775808"})
+    void nonIntegerJsonQuantityIsRejectedBeforeService(String quantity) throws Exception {
+        mockMvc.perform(post("/api/buyins")
+                        .with(user("cashier").roles("CASHIER"))
+                        .contentType("application/json")
+                        .content(REQUEST.replace("\"1000\":10", "\"1000\":" + quantity)))
+                .andExpect(status().isBadRequest());
+        org.mockito.Mockito.verifyNoInteractions(service);
+    }
+
+    @Test
+    void integerJsonQuantityReachesServiceWithoutCoercion() throws Exception {
+        when(service.create(any())).thenReturn(response());
+        mockMvc.perform(post("/api/buyins")
+                        .with(user("cashier").roles("CASHIER"))
+                        .contentType("application/json").content(REQUEST))
+                .andExpect(status().isCreated());
+        org.mockito.Mockito.verify(service).create(org.mockito.ArgumentMatchers.argThat(
+                request -> request.denominations().equals(java.util.Map.of(1000, 10L))));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"ADMIN", "PIT_SUPERVISOR", "DEALER"})
+    void unrelatedRolesCannotReadScopedHistory(String role) throws Exception {
+        mockMvc.perform(get("/api/buyins/current").with(user("other").roles(role)))
                 .andExpect(status().isForbidden());
     }
 

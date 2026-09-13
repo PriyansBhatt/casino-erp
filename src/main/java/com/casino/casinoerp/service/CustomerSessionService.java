@@ -180,7 +180,7 @@ public class CustomerSessionService {
         customerService.getRequiredCustomer(customerId);
 
         CustomerSession session = repository
-                .findFirstByCustomerIdAndStatusIgnoreCase(customerId, "OPEN")
+                .findFirstByCustomerIdAndStatusIgnoreCaseAndExitTimeIsNull(customerId, "OPEN")
                 .orElseThrow(() -> new ResourceNotFoundException("Active customer session not found."));
 
         return toReceptionResponse(session);

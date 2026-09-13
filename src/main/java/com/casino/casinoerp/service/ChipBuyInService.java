@@ -117,8 +117,8 @@ public class ChipBuyInService {
             validateIdempotentReplay(existing, request);
             return toResponse(existing);
         }
-        if (!"OPEN".equalsIgnoreCase(session.getStatus())) {
-            throw new IllegalArgumentException("Customer session must be OPEN.");
+        if (!"OPEN".equalsIgnoreCase(session.getStatus()) || session.getExitTime() != null) {
+            throw new IllegalArgumentException("Customer session must be OPEN and unexited.");
         }
         if (!request.customerId().equals(session.getCustomerId())) {
             throw new IllegalArgumentException("Customer session does not belong to the supplied customer.");
@@ -266,9 +266,19 @@ public class ChipBuyInService {
         }
         businessDateService.validateBusinessDateIsOpen();
         LocalDate date = businessDateService.getCurrentBusinessDate();
-        return repository.findByBusinessDateOrderByCreatedAtDesc(date).stream().map(value -> {
-            Customer customer = customerRepository.findById(value.getCustomerId()).orElse(null);
-            return new ChipBuyInHistoryResponse(toResponse(value),
+        List<ChipBuyIn> buyIns = repository.findByBusinessDateOrderByCreatedAtDesc(date);
+        if (buyIns.isEmpty()) return List.of();
+        var customerIds = buyIns.stream().map(ChipBuyIn::getCustomerId).distinct().toList();
+        var actorIds = buyIns.stream().map(ChipBuyIn::getCreatedBy)
+                .filter(java.util.Objects::nonNull).distinct().toList();
+        var customers = customerRepository.findAllById(customerIds).stream()
+                .collect(java.util.stream.Collectors.toMap(Customer::getId, java.util.function.Function.identity()));
+        var actors = actorIds.isEmpty() ? java.util.Map.<UUID, User>of()
+                : userRepository.findAllById(actorIds).stream()
+                .collect(java.util.stream.Collectors.toMap(User::getId, java.util.function.Function.identity()));
+        return buyIns.stream().map(value -> {
+            Customer customer = customers.get(value.getCustomerId());
+            return new ChipBuyInHistoryResponse(toResponse(value, value.getCreatedBy() == null ? null : actors.get(value.getCreatedBy())),
                     customer == null ? null : customer.getCustomerCode(),
                     customer == null ? null : customer.getFullName());
         }).toList();

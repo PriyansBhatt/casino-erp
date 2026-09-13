@@ -200,7 +200,7 @@ class CustomerSessionServiceTests {
     @Test
     void findsActiveSessionUsingSafeResponse() {
         CustomerSession activeSession = openSessionEntity(UUID.randomUUID());
-        when(repository.findFirstByCustomerIdAndStatusIgnoreCase(customerId, "OPEN"))
+        when(repository.findFirstByCustomerIdAndStatusIgnoreCaseAndExitTimeIsNull(customerId, "OPEN"))
                 .thenReturn(Optional.of(activeSession));
 
         ReceptionSessionResponse response = service.getActiveSession(customerId);
@@ -208,6 +208,17 @@ class CustomerSessionServiceTests {
         assertThat(response.id()).isEqualTo(activeSession.getId());
         assertThat(response.status()).isEqualTo("OPEN");
         assertThat(response.businessDate()).isEqualTo(businessDate);
+    }
+
+    @Test
+    void activeSessionLookupUsesUnexitedPredicateWithoutBusinessDateRestriction() {
+        CustomerSession historical = openSessionEntity(UUID.randomUUID());
+        historical.setBusinessDate(businessDate.minusDays(4));
+        when(repository.findFirstByCustomerIdAndStatusIgnoreCaseAndExitTimeIsNull(customerId, "OPEN"))
+                .thenReturn(Optional.of(historical));
+        assertThat(service.getActiveSession(customerId).businessDate()).isEqualTo(businessDate.minusDays(4));
+        verify(repository).findFirstByCustomerIdAndStatusIgnoreCaseAndExitTimeIsNull(customerId, "OPEN");
+        verify(repository, never()).findFirstByCustomerIdAndStatusIgnoreCase(any(), any());
     }
 
     @Test

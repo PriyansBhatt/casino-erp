@@ -155,7 +155,7 @@ class ChipBuyInServiceTests {
     @Test void closedSessionIsRejected() {
         when(sessionRepository.findByIdForUpdate(sessionId)).thenReturn(Optional.of(session("CLOSED", customerId, businessDate)));
         assertThatThrownBy(() -> service.create(request(PaymentMode.CASH, null)))
-                .hasMessage("Customer session must be OPEN.");
+                .hasMessage("Customer session must be OPEN and unexited.");
     }
 
     @Test void customerSessionMismatchIsRejected() {
@@ -228,8 +228,8 @@ class ChipBuyInServiceTests {
         customer.setFullName("Test Customer");
         when(buyInRepository.findByBusinessDateOrderByCreatedAtDesc(businessDate))
                 .thenReturn(List.of(currentDateBuyIn));
-        when(customerRepository.findById(customerId)).thenReturn(Optional.of(customer));
-        when(userRepository.findById(actorId)).thenReturn(Optional.of(actor()));
+        when(customerRepository.findAllById(any())).thenReturn(List.of(customer));
+        when(userRepository.findAllById(any())).thenReturn(List.of(actor()));
 
         var history = service.getCurrentBusinessDateHistory();
 
@@ -239,7 +239,40 @@ class ChipBuyInServiceTests {
         assertThat(history.getFirst().customerCode()).isEqualTo("CUS-1001");
         assertThat(history.getFirst().customerName()).isEqualTo("Test Customer");
         verify(buyInRepository).findByBusinessDateOrderByCreatedAtDesc(businessDate);
+        assertThat(history.getFirst().transaction().createdBy().username()).isEqualTo("cashier");
+        verify(customerRepository).findAllById(List.of(customerId));
+        verify(userRepository).findAllById(List.of(actorId));
+        verify(customerRepository, never()).findById(any());
+        verify(userRepository, never()).findById(any());
         verify(buyInRepository, never()).findAll();
+    }
+
+    @Test
+    void manyHistoryRowsUseOneBulkLookupPerEntityType() {
+        var rows = java.util.stream.IntStream.range(0, 100).mapToObj(index -> existingBuyIn()).toList();
+        when(buyInRepository.findByBusinessDateOrderByCreatedAtDesc(businessDate)).thenReturn(rows);
+        when(customerRepository.findAllById(List.of(customerId))).thenReturn(List.of(customer(CustomerStatus.ACTIVE)));
+        when(userRepository.findAllById(List.of(actorId))).thenReturn(List.of(actor()));
+        assertThat(service.getCurrentBusinessDateHistory()).hasSize(100);
+        verify(customerRepository, times(1)).findAllById(List.of(customerId));
+        verify(userRepository, times(1)).findAllById(List.of(actorId));
+        verify(customerRepository, never()).findById(any());
+        verify(userRepository, never()).findById(any());
+    }
+
+    @Test
+    void emptyHistoryDoesNotFetchCustomersOrActors() {
+        when(buyInRepository.findByBusinessDateOrderByCreatedAtDesc(businessDate)).thenReturn(List.of());
+        assertThat(service.getCurrentBusinessDateHistory()).isEmpty();
+        verify(customerRepository, never()).findAllById(any());
+        verify(userRepository, never()).findAllById(any());
+    }
+
+    @Test
+    void scopedHistoryFetchPlanIncludesDenominations() throws Exception {
+        var method = ChipBuyInRepository.class.getMethod("findByBusinessDateOrderByCreatedAtDesc", LocalDate.class);
+        assertThat(method.getAnnotation(org.springframework.data.jpa.repository.EntityGraph.class).attributePaths())
+                .containsExactly("denominations");
     }
 
     @Test
@@ -251,6 +284,17 @@ class ChipBuyInServiceTests {
 
         verifyNoInteractions(businessDateService);
         verify(buyInRepository, never()).findByBusinessDateOrderByCreatedAtDesc(any());
+    }
+
+    @Test
+    void openSessionWithExitTimestampIsRejectedBeforeFinancialWrites() {
+        CustomerSession exited = session("OPEN", customerId, businessDate);
+        exited.setExitTime(LocalDateTime.now());
+        when(sessionRepository.findByIdForUpdate(sessionId)).thenReturn(Optional.of(exited));
+        assertThatThrownBy(() -> service.create(request(PaymentMode.CASH, null)))
+                .hasMessage("Customer session must be OPEN and unexited.");
+        verify(buyInRepository, never()).save(any());
+        verifyNoInteractions(chipCustodyService, walletTransactionService);
     }
 
     private CreateChipBuyInRequest request(PaymentMode mode, String reference) {

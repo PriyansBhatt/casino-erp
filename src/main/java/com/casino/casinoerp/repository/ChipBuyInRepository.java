@@ -14,6 +14,7 @@ public interface ChipBuyInRepository extends JpaRepository<ChipBuyIn, UUID> {
     Optional<ChipBuyIn> findByIdempotencyKey(String idempotencyKey);
     List<ChipBuyIn> findByBusinessDateAndCreatedBy(LocalDate businessDate, UUID createdBy);
     List<ChipBuyIn> findByCustomerIdAndBusinessDate(UUID customerId, LocalDate businessDate);
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = "denominations")
     List<ChipBuyIn> findByBusinessDateOrderByCreatedAtDesc(LocalDate businessDate);
     List<ChipBuyIn> findByBusinessDate(LocalDate businessDate);
 }
