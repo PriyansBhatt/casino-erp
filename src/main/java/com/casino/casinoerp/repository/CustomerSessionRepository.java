@@ -38,10 +38,10 @@ public interface CustomerSessionRepository extends JpaRepository<CustomerSession
                     cs.created_at desc nulls last, cs.id desc))[1] as "lastVisitBusinessDate",
                 (array_agg(cs.entry_time order by cs.entry_time desc nulls last,
                     cs.created_at desc nulls last, cs.id desc))[1] as "lastEntryTime",
-                bool_or(upper(cs.status) = 'OPEN') as "hasActiveSession",
+                bool_or(upper(cs.status) = 'OPEN' and cs.exit_time is null) as "hasActiveSession",
                 (array_agg(cs.id order by cs.entry_time desc nulls last,
                     cs.created_at desc nulls last, cs.id desc)
-                    filter (where upper(cs.status) = 'OPEN'))[1] as "activeSessionId"
+                    filter (where upper(cs.status) = 'OPEN' and cs.exit_time is null))[1] as "activeSessionId"
             from session.customer_sessions cs
             where cs.customer_id in (:customerIds)
             group by cs.customer_id
