@@ -146,7 +146,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/cashouts")
                         .hasAnyRole(Role.CASHIER.name(), Role.SUPER_ADMIN.name())
 
-                        .requestMatchers(HttpMethod.GET, "/api/losing-returns/eligibility/customer/*")
+                        .requestMatchers(HttpMethod.GET, "/api/losing-returns/eligibility/customer/*",
+                                "/api/losing-returns/history/customer/*")
                         .hasAnyRole(Role.CASHIER.name(), Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())
 
                         .requestMatchers(HttpMethod.POST, "/api/losing-returns")

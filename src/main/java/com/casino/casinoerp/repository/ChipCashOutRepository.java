@@ -9,6 +9,12 @@ import java.util.UUID;
 import java.time.LocalDate;
 
 public interface ChipCashOutRepository extends JpaRepository<ChipCashOut, UUID> {
+    @org.springframework.data.jpa.repository.Query("select distinct c from ChipCashOut c left join fetch c.denominations where c.customerSessionId = :sessionId order by c.createdAt desc, c.id desc")
+    List<ChipCashOut> findHistoryBySession(@org.springframework.data.repository.query.Param("sessionId") UUID sessionId);
+
+    @org.springframework.data.jpa.repository.Query("select distinct c from ChipCashOut c left join fetch c.denominations order by c.createdAt desc, c.id desc")
+    List<ChipCashOut> findHistory();
+
     List<ChipCashOut> findByCustomerSessionId(UUID customerSessionId);
     Optional<ChipCashOut> findByIdempotencyKey(String idempotencyKey);
     List<ChipCashOut> findByBusinessDateAndCreatedBy(LocalDate businessDate, UUID createdBy);

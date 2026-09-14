@@ -182,6 +182,29 @@ class ChipCustodyServiceTests {
     }
 
     @Test
+    void cashOutExactPhysicalBalanceAndInvalidQuantitiesRemainAuthoritative() {
+        seedCage(1000, 2);
+        seed("CUSTOMER_SESSION:" + sessionId, ChipCustodyLocationType.CUSTOMER_SESSION, sessionId, 1000, 10);
+        var invalid = new java.util.ArrayList<Map<Integer, Long>>();
+        invalid.add(Map.of(2000, 1L)); invalid.add(Map.of(1000, -1L));
+        invalid.add(Map.of(25000, Long.MAX_VALUE)); invalid.add(Map.of());
+        var nullQuantity = new java.util.HashMap<Integer, Long>(); nullQuantity.put(1000, null); invalid.add(nullQuantity);
+        for (var quantities : invalid) {
+            assertThatThrownBy(() -> service.recordCashOut(UUID.randomUUID(), sessionId, businessDate,
+                    quantities, new BigDecimal("10000"), actorId)).isInstanceOf(IllegalArgumentException.class);
+        }
+        assertThatThrownBy(() -> service.recordCashOut(UUID.randomUUID(), sessionId, businessDate,
+                Map.of(1000, 10L), new BigDecimal("10500"), actorId)).hasMessageContaining("does not match");
+        verify(movements, never()).save(any());
+        assertThat(rows.get(key("CUSTOMER_SESSION:" + sessionId, 1000)).getQuantity()).isEqualTo(10);
+        service.recordCashOut(UUID.randomUUID(), sessionId, businessDate,
+                Map.of(1000, 10L), new BigDecimal("10000"), actorId);
+        assertThat(rows.get(key("CUSTOMER_SESSION:" + sessionId, 1000)).getQuantity()).isZero();
+        assertThat(rows.get(key("CAGE", 1000)).getQuantity()).isEqualTo(12);
+        verifyNoInteractions(financialPositions); // Physical custody never manufactures financial entitlement.
+    }
+
+    @Test
     void tableFloatIssueAndReturnMoveExactDenominations() {
         seedCage(5000, 10);
         service.issueTableFloat(tableId, request(Map.of(5000, 4L), "issue"));

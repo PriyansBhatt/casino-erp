@@ -15,6 +15,11 @@ public class LosingReturnController {
     public ApiResponse<LosingReturnEligibilityResponse> eligibility(@PathVariable UUID customerId){
         return ApiResponse.success("Losing Return eligibility calculated successfully", service.eligibility(customerId));
     }
+    @GetMapping("/history/customer/{customerId}")
+    public ApiResponse<java.util.List<LosingReturnHistoryResponse>> history(@PathVariable UUID customerId,
+            @RequestParam @org.springframework.format.annotation.DateTimeFormat(iso = org.springframework.format.annotation.DateTimeFormat.ISO.DATE) java.time.LocalDate businessDate) {
+        return ApiResponse.success("Persisted Losing Return history", service.history(customerId, businessDate));
+    }
     @PostMapping
     public ApiResponse<LosingReturnResponse> create(@Valid @RequestBody CreateLosingReturnRequest request){
         return ApiResponse.success("Losing Return posted successfully", service.create(request));

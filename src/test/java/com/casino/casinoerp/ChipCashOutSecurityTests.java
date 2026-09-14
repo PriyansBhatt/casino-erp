@@ -81,6 +81,15 @@ class ChipCashOutSecurityTests {
                 .andExpect(status().isBadRequest());
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"1.5", "\"1\"", "-1", "null", "9223372036854775808", "true"})
+    void invalidQuantitiesReturnControlled400(String quantity) throws Exception {
+        mockMvc.perform(post("/api/cashouts").with(user("cashier").roles("CASHIER"))
+                .contentType("application/json").content(REQUEST.replace("\"1000\":1", "\"1000\":" + quantity)))
+                .andExpect(status().isBadRequest());
+        org.mockito.Mockito.verify(service, org.mockito.Mockito.never()).create(any());
+    }
+
     private ChipCashOutResponse response() {
         return new ChipCashOutResponse(UUID.randomUUID(), "CO-20260808-test",
                 UUID.fromString("00000000-0000-0000-0000-000000000001"),

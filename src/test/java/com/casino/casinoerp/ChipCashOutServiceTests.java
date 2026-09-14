@@ -60,6 +60,48 @@ class ChipCashOutServiceTests {
                 .thenAnswer(invocation -> custodyMovement(invocation.getArgument(3)));
     }
 
+    @Test void exitedOpenSessionCannotCashOut() {
+        var exited = session("OPEN", customerId, businessDate);
+        exited.setExitTime(java.time.LocalDateTime.now());
+        when(sessionRepository.findByIdForUpdate(sessionId)).thenReturn(Optional.of(exited));
+        assertThatThrownBy(() -> service.create(request("500", "500", PaymentMode.CASH, null, "exited")))
+                .hasMessageContaining("unexited");
+        verify(repository, never()).save(any());
+    }
+
+    @Test void physicalMaximumCanLeaveFinancialResidualWithoutClosingSession() {
+        var active = session("OPEN", customerId, businessDate);
+        when(sessionRepository.findByIdForUpdate(sessionId)).thenReturn(Optional.of(active));
+        when(positionService.getPosition(sessionId)).thenReturn(position("10500"));
+        var value = service.create(new CreateChipCashOutRequest(customerId, sessionId,
+                new BigDecimal("10000"), new BigDecimal("10000"), Map.of(1000, 10L),
+                PaymentMode.CASH, null, null, "physical-maximum"));
+        assertThat(new BigDecimal("10500").subtract(value.totalChipValueReturned())).isEqualByComparingTo("500");
+        assertThat(active.getStatus()).isEqualTo("OPEN"); assertThat(active.getExitTime()).isNull();
+        verify(custodyService).recordCashOut(eq(value.id()), eq(sessionId), eq(businessDate),
+                eq(Map.of(1000, 10L)), eq(new BigDecimal("10000")), eq(actorId));
+        verify(sessionRepository, never()).save(any());
+    }
+
+    @Test void physicalCustodyFailurePreventsWalletAndAudit() {
+        doThrow(new IllegalArgumentException("Insufficient physical custody"))
+                .when(custodyService).recordCashOut(any(), any(), any(), anyMap(), any(), any());
+        assertThatThrownBy(() -> service.create(request("500", "500", PaymentMode.CASH, null, "physical")))
+                .hasMessageContaining("physical custody");
+        verify(walletService, never()).save(any());
+        verifyNoInteractions(auditService);
+    }
+
+    @Test void historyBulkLoadsActorsOnce() {
+        var first = new ChipCashOut(); first.setCreatedBy(actorId); first.setDenominations(Map.of(500, 1L));
+        var second = new ChipCashOut(); second.setCreatedBy(actorId); second.setDenominations(Map.of(1000, 1L));
+        when(repository.findHistoryBySession(sessionId)).thenReturn(java.util.List.of(first, second));
+        when(userRepository.findAllById(java.util.List.of(actorId))).thenReturn(java.util.List.of(actor()));
+        assertThat(service.getBySessionId(sessionId)).hasSize(2).allSatisfy(row -> assertThat(row.createdBy().id()).isEqualTo(actorId));
+        verify(userRepository).findAllById(java.util.List.of(actorId));
+        verify(userRepository, never()).findById(any());
+    }
+
     @Test void exactMaximumCreatesServerOwnedCashOutWalletAndAudit() {
         ChipCashOutResponse response = service.create(request("1000", "1000", PaymentMode.CASH, null, "key-1"));
         assertThat(response.id()).isNotNull();
@@ -160,7 +202,7 @@ class ChipCashOutServiceTests {
                 .isInstanceOf(ResourceNotFoundException.class);
         when(sessionRepository.findByIdForUpdate(sessionId)).thenReturn(Optional.of(session("CLOSED", customerId, businessDate)));
         assertThatThrownBy(() -> service.create(request("100", "100", PaymentMode.CASH, null, "s2")))
-                .hasMessage("Customer session must be OPEN.");
+                .hasMessage("Customer session must be OPEN and unexited.");
         when(sessionRepository.findByIdForUpdate(sessionId)).thenReturn(Optional.of(session("OPEN", UUID.randomUUID(), businessDate)));
         assertThatThrownBy(() -> service.create(request("100", "100", PaymentMode.CASH, null, "s3")))
                 .hasMessage("Customer session does not belong to the supplied customer.");

@@ -10,5 +10,5 @@ public record LosingReturnEligibilityResponse(
         BigDecimal previousCashOuts, BigDecimal previousLosingReturns,
         BigDecimal eligibleVerifiedLoss, BigDecimal minimumEligibleLoss,
         BigDecimal returnRate, BigDecimal availableReturnAmount,
-        boolean eligible, String eligibilityReason
+        boolean eligible, String eligibilityReason, boolean alreadyPaid
 ) {}

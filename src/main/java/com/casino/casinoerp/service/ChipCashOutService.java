@@ -108,8 +108,8 @@ public class ChipCashOutService {
             validateIdempotentReplay(existing, request);
             return toResponse(existing);
         }
-        if (!"OPEN".equalsIgnoreCase(session.getStatus())) {
-            throw new IllegalArgumentException("Customer session must be OPEN.");
+        if (!"OPEN".equalsIgnoreCase(session.getStatus()) || session.getExitTime() != null) {
+            throw new IllegalArgumentException("Customer session must be OPEN and unexited.");
         }
         if (!request.customerId().equals(session.getCustomerId())) {
             throw new IllegalArgumentException("Customer session does not belong to the supplied customer.");
@@ -233,15 +233,20 @@ public class ChipCashOutService {
                 createdBy, cashOut.getRemarks());
     }
 
+    @Transactional(readOnly = true)
     public List<ChipCashOutResponse> getBySessionId(UUID customerSessionId) {
-        return repository.findByCustomerSessionId(customerSessionId).stream()
-                .map(this::toResponse)
-                .toList();
+        return history(repository.findHistoryBySession(customerSessionId));
     }
 
+    @Transactional(readOnly = true)
     public List<ChipCashOutResponse> getAllCashOuts() {
-        return repository.findAll().stream()
-                .map(this::toResponse)
-                .toList();
+        return history(repository.findHistory());
+    }
+
+    private List<ChipCashOutResponse> history(List<ChipCashOut> rows) {
+        var ids = rows.stream().map(ChipCashOut::getCreatedBy).filter(Objects::nonNull).distinct().toList();
+        var actors = new java.util.HashMap<UUID, User>();
+        if (!ids.isEmpty()) userRepository.findAllById(ids).forEach(actor -> actors.put(actor.getId(), actor));
+        return rows.stream().map(row -> toResponse(row, actors.get(row.getCreatedBy()))).toList();
     }
 }

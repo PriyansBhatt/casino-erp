@@ -9,4 +9,18 @@ class LosingReturnSecurityTests { @Autowired MockMvc mvc; @MockitoBean LosingRet
  @ParameterizedTest @ValueSource(strings={"CASHIER","SUPER_ADMIN"}) void allowedRolesCanReadAndPost(String role)throws Exception{ mvc.perform(get("/api/losing-returns/eligibility/customer/00000000-0000-0000-0000-000000000001").with(user(role).roles(role))).andExpect(status().isOk()); mvc.perform(post("/api/losing-returns").with(user(role).roles(role)).contentType(MediaType.APPLICATION_JSON).content("{\"customerId\":\"00000000-0000-0000-0000-000000000001\",\"customerSessionId\":\"00000000-0000-0000-0000-000000000002\",\"idempotencyKey\":\"key\"}")).andExpect(status().isOk()); }
  @ParameterizedTest @ValueSource(strings={"RECEPTIONIST","PIT_SUPERVISOR","DEALER"}) void unrelatedRolesDenied(String role)throws Exception{ mvc.perform(get("/api/losing-returns/eligibility/customer/00000000-0000-0000-0000-000000000001").with(user(role).roles(role))).andExpect(status().isForbidden()); }
  @org.junit.jupiter.api.Test void directorCanReadButCannotPost()throws Exception{ mvc.perform(get("/api/losing-returns/eligibility/customer/00000000-0000-0000-0000-000000000001").with(user("director").roles("DIRECTOR"))).andExpect(status().isOk()); mvc.perform(post("/api/losing-returns").with(user("director").roles("DIRECTOR")).contentType(MediaType.APPLICATION_JSON).content("{}")).andExpect(status().isForbidden()); }
+ @ParameterizedTest @ValueSource(strings={"CASHIER","SUPER_ADMIN","DIRECTOR"})
+ void historyAllowedForViewingRoles(String role) throws Exception {
+   mvc.perform(get("/api/losing-returns/history/customer/00000000-0000-0000-0000-000000000001")
+     .param("businessDate","2026-09-02").with(user(role).roles(role))).andExpect(status().isOk());
+ }
+ @ParameterizedTest @ValueSource(strings={"ADMIN","RECEPTIONIST","PIT_SUPERVISOR","DEALER","MANAGER","COMPLIANCE_OFFICER","SURVEILLANCE_OFFICER"})
+ void historyDeniedForUnrelatedRoles(String role) throws Exception {
+   mvc.perform(get("/api/losing-returns/history/customer/00000000-0000-0000-0000-000000000001")
+     .param("businessDate","2026-09-02").with(user(role).roles(role))).andExpect(status().isForbidden());
+ }
+ @org.junit.jupiter.api.Test void historyRequiresValidDate() throws Exception {
+   mvc.perform(get("/api/losing-returns/history/customer/00000000-0000-0000-0000-000000000001")
+     .param("businessDate","invalid").with(user("cashier").roles("CASHIER"))).andExpect(status().isBadRequest());
+ }
 }

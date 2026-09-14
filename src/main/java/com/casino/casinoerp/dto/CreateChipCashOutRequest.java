@@ -1,6 +1,7 @@
 package com.casino.casinoerp.dto;
 
 import com.casino.casinoerp.entity.PaymentMode;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -19,7 +20,9 @@ public record CreateChipCashOutRequest(
         @NotNull(message = "Total chip value returned is required")
         @DecimalMin(value = "0.01", message = "Total chip value returned must be greater than 0")
         BigDecimal totalChipValueReturned,
-        @NotNull(message = "Chip denominations are required") Map<Integer, Long> denominations,
+        @NotNull(message = "Chip denominations are required")
+        @JsonDeserialize(contentUsing = StrictBuyInQuantityDeserializer.class)
+        Map<Integer, @NotNull @jakarta.validation.constraints.PositiveOrZero Long> denominations,
         @NotNull(message = "Payment mode is required") PaymentMode paymentMode,
         @Size(max = 150, message = "Payment reference must not exceed 150 characters")
         String paymentReference,

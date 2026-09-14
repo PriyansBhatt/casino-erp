@@ -49,6 +49,12 @@ public class LosingReturnService {
         return calculate(customerId, session.getId(), date);
     }
 
+    @Transactional(readOnly=true)
+    public List<LosingReturnHistoryResponse> history(UUID customerId, LocalDate businessDate) {
+        validateViewRole();
+        return repository.findHistory(customerId, businessDate);
+    }
+
     @Transactional
     public LosingReturnResponse create(CreateLosingReturnRequest request) {
         validateRole();
@@ -75,10 +81,10 @@ public class LosingReturnService {
             return response(replay);
         }
         LosingReturnEligibilityResponse eligible = calculate(request.customerId(), session.getId(), date);
+        if (eligible.alreadyPaid())
+            throw new ResourceConflictException("A Losing Return has already been posted for this customer and Business Date.");
         if (!eligible.eligible() || eligible.availableReturnAmount().signum() <= 0)
             throw new ResourceConflictException("Customer has no eligible verified net loss for a Losing Return.");
-        if (!repository.findByCustomerIdAndBusinessDateOrderByCreatedAtAsc(request.customerId(), date).isEmpty())
-            throw new ResourceConflictException("A Losing Return has already been posted for this customer and Business Date.");
         LosingReturn value = new LosingReturn();
         value.setLosingReturnCode("LR-" + date.toString().replace("-", "") + "-" + UUID.randomUUID());
         value.setCustomerId(request.customerId()); value.setCustomerSessionId(session.getId()); value.setBusinessDate(date);
@@ -98,22 +104,26 @@ public class LosingReturnService {
         List<VerifiedGamingResult> gaming = results.findByCustomerIdAndBusinessDateOrderByCreatedAtAsc(customerId,date);
         BigDecimal wins = gaming.stream().filter(v->v.getResultType()==VerifiedGamingResultType.WIN).map(VerifiedGamingResult::getAmount).reduce(BigDecimal.ZERO,BigDecimal::add);
         BigDecimal losses = gaming.stream().filter(v->v.getResultType()==VerifiedGamingResultType.LOSS).map(VerifiedGamingResult::getAmount).reduce(BigDecimal.ZERO,BigDecimal::add);
-        BigDecimal prior = repository.findByCustomerIdAndBusinessDateOrderByCreatedAtAsc(customerId,date).stream().map(LosingReturn::getAmountPaid).reduce(BigDecimal.ZERO,BigDecimal::add);
+        var priorReturns = repository.findByCustomerIdAndBusinessDateOrderByCreatedAtAsc(customerId,date);
+        boolean alreadyPaid = !priorReturns.isEmpty();
+        BigDecimal prior = priorReturns.stream().map(LosingReturn::getAmountPaid).reduce(BigDecimal.ZERO,BigDecimal::add);
         BigDecimal netLoss = losses.subtract(wins).max(BigDecimal.ZERO);
         boolean meetsMinimum = netLoss.compareTo(MINIMUM_ELIGIBLE_LOSS) >= 0;
         BigDecimal available = meetsMinimum
                 ? netLoss.multiply(RATE).setScale(2, RoundingMode.HALF_UP).subtract(prior).max(BigDecimal.ZERO)
                 : BigDecimal.ZERO;
-        boolean eligible = meetsMinimum && available.signum() > 0;
-        String reason = !meetsMinimum ? MINIMUM_REASON
+        boolean eligible = !alreadyPaid && meetsMinimum && available.signum() > 0;
+        String reason = alreadyPaid ? "A Losing Return has already been paid for this customer and Business Date. No further payout is permitted." : !meetsMinimum ? MINIMUM_REASON
                 : available.signum() == 0 ? "The available Losing Return has already been paid." : "Eligible verified net loss meets the minimum requirement.";
         return new LosingReturnEligibilityResponse(customerId,sessionId,date,buyIn,wins,losses,cashOut,prior,
-                netLoss,MINIMUM_ELIGIBLE_LOSS,RATE,available,eligible,reason);
+                netLoss,MINIMUM_ELIGIBLE_LOSS,RATE,available,eligible,reason,alreadyPaid);
     }
     private CustomerSession activeSession(UUID customerId, LocalDate date) {
         Customer customer=customers.findById(customerId).orElseThrow(()->new ResourceNotFoundException("Customer not found."));
         if (customer.getStatus()!=CustomerStatus.ACTIVE) throw new IllegalArgumentException("Customer must be ACTIVE.");
-        CustomerSession session=sessions.findFirstByCustomerIdAndStatusIgnoreCase(customerId,"OPEN").orElseThrow(()->new ResourceNotFoundException("Active customer session not found."));
+        CustomerSession session=sessions.findFirstByCustomerIdAndStatusIgnoreCaseAndExitTimeIsNull(customerId,"OPEN").orElseThrow(()->new ResourceNotFoundException("Active customer session not found."));
+        if (!customerId.equals(session.getCustomerId()) || !"OPEN".equalsIgnoreCase(session.getStatus()) || session.getExitTime() != null)
+            throw new IllegalArgumentException("Customer session must be owned by the customer, OPEN and unexited.");
         if (!date.equals(session.getBusinessDate())) throw new IllegalArgumentException("Customer session does not belong to the current OPEN Business Date.");
         return session;
     }
@@ -122,7 +132,7 @@ public class LosingReturnService {
         if (customer.getStatus()!=CustomerStatus.ACTIVE) throw new IllegalArgumentException("Customer must be ACTIVE.");
         CustomerSession session=sessions.findByIdForUpdate(sessionId).orElseThrow(()->new ResourceNotFoundException("Active customer session not found."));
         if (!customerId.equals(session.getCustomerId())) throw new IllegalArgumentException("Customer session does not belong to the supplied customer.");
-        if (!"OPEN".equalsIgnoreCase(session.getStatus())) throw new IllegalArgumentException("Customer session must be OPEN.");
+        if (!"OPEN".equalsIgnoreCase(session.getStatus()) || session.getExitTime() != null) throw new IllegalArgumentException("Customer session must be OPEN and unexited.");
         if (!date.equals(session.getBusinessDate())) throw new IllegalArgumentException("Customer session does not belong to the current OPEN Business Date.");
         return session;
     }
