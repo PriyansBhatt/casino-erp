@@ -35,6 +35,25 @@ class ChipCustodySecurityTests {
             + "\"denominations\":{\"5000\":1},\"reason\":\"Legacy pre-ledger custody correction\","
             + "\"idempotencyKey\":\"legacy-correction-test\"}";
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"1.5", "10.0", "1e1", "\"10\"", "9223372036854775808"})
+    void strictQuantityBoundaryRejectsCoercion(String quantity) throws Exception {
+        for (String path : java.util.List.of("/api/chip-custody/cage/opening",
+                "/api/chip-custody/tables/" + UUID.randomUUID() + "/float-issue",
+                "/api/chip-custody/tables/" + UUID.randomUUID() + "/float-return",
+                "/api/chip-custody/tables/" + UUID.randomUUID() + "/customer-sessions/" + UUID.randomUUID() + "/issue")) {
+            mockMvc.perform(post(path).with(user("admin").roles("SUPER_ADMIN"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(BODY.replace("\"1000\":10", "\"1000\":" + quantity)))
+                    .andExpect(status().isBadRequest());
+        }
+        mockMvc.perform(post("/api/chip-custody/legacy-session-correction")
+                .with(user("admin").roles("SUPER_ADMIN")).contentType(MediaType.APPLICATION_JSON)
+                .content(CORRECTION_BODY.replace("\"5000\":1", "\"5000\":" + quantity)))
+                .andExpect(status().isBadRequest());
+        org.mockito.Mockito.verifyNoInteractions(service);
+    }
+
     @Test void unauthenticatedRequestsAreDenied() throws Exception {
         mockMvc.perform(get("/api/chip-custody/cage")).andExpect(status().isForbidden());
         mockMvc.perform(post("/api/chip-custody/cage/opening").contentType(MediaType.APPLICATION_JSON).content(BODY))

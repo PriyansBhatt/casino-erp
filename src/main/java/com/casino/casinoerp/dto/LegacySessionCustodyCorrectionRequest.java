@@ -10,7 +10,8 @@ import java.util.UUID;
 
 public record LegacySessionCustodyCorrectionRequest(
         @NotNull(message = "Customer session ID is required") UUID customerSessionId,
-        @NotEmpty(message = "Denominations are required") Map<Integer, Long> denominations,
+        @NotEmpty(message = "Denominations are required") @com.fasterxml.jackson.databind.annotation.JsonDeserialize(contentUsing = StrictBuyInQuantityDeserializer.class)
+        Map<Integer, Long> denominations,
         @NotBlank(message = "Correction reason is required")
         @Size(min = 10, max = 500,
                 message = "Correction reason must be between 10 and 500 characters") String reason,

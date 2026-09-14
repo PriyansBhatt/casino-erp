@@ -32,10 +32,11 @@ class ChipCustodyServiceTests {
     private final AuditLogService audit = mock(AuditLogService.class);
     private final SessionFinancialPositionService financialPositions = mock(SessionFinancialPositionService.class);
     private final PitTableAccessService tableAccess = mock(PitTableAccessService.class);
+    private final ChipControlReadRepository controlReads = mock(ChipControlReadRepository.class);
     private final ChipCustodyService service = new ChipCustodyService(movements, inventory, pitTables,
             customerSessions, assignments,
             businessDates, systemLock, authenticatedUsers, currentRoles, new RolePermissionService(), audit,
-            financialPositions, tableAccess);
+            financialPositions, tableAccess, controlReads);
 
     private final UUID actorId = UUID.randomUUID();
     private final UUID sessionId = UUID.randomUUID();
@@ -78,6 +79,41 @@ class ChipCustodyServiceTests {
         when(customerSessions.findByIdForUpdate(sessionId)).thenReturn(Optional.of(openSession()));
         when(assignments.findActiveForUpdate(sessionId, tableId)).thenReturn(Optional.of(activeAssignment()));
         when(financialPositions.getPosition(sessionId)).thenReturn(position("5000"));
+    }
+
+    @Test
+    void exitedOpenSessionCannotTransferInEitherDirection() {
+        var session = openSession(); session.setExitTime(java.time.LocalDateTime.now());
+        when(customerSessions.findByIdForUpdate(sessionId)).thenReturn(Optional.of(session));
+        var request = new ChipCustodyTransferRequest(Map.of(1000, 1L), "exit-test");
+        assertThatThrownBy(() -> service.moveCustomerChipsToTable(tableId, sessionId, request))
+                .hasMessageContaining("unexited");
+        assertThatThrownBy(() -> service.returnTableChipsToCustomer(tableId, sessionId, request))
+                .hasMessageContaining("unexited");
+        verify(movements, never()).save(any());
+        verify(inventory, never()).saveAll(any());
+    }
+
+    @Test
+    void movementHistoryUsesOneBulkEnrichmentAndRetainsAuditFields() throws Exception {
+        var movement = new ChipCustodyMovement(); movement.setId(UUID.randomUUID());
+        movement.setBusinessDate(businessDate); movement.setCreatedBy(actorId);
+        movement.setMovementType(ChipCustodyMovementType.BUY_IN_ISSUE);
+        movement.setDenominations(Map.of(1000, 2L)); movement.setTotalValue(new BigDecimal("2000"));
+        var display = new com.casino.casinoerp.dto.ChipCustodyDisplayResponse(
+                "CUS-1", "Customer", "SES-1", null, null, "cashier", "Cashier Name");
+        when(movements.findByBusinessDateOrderByCreatedAtDescIdDesc(businessDate)).thenReturn(List.of(movement));
+        when(controlReads.movementDisplays(List.of(movement.getId()))).thenReturn(Map.of(movement.getId(), display));
+        var result = service.currentHistory().getFirst();
+        assertThat(result.display()).isEqualTo(display);
+        assertThat(result.createdBy()).isEqualTo(actorId);
+        assertThat(result.businessDate()).isEqualTo(businessDate);
+        assertThat(result.denominations()).containsEntry(1000, 2L);
+        verify(controlReads, times(1)).movementDisplays(List.of(movement.getId()));
+        var graph = ChipCustodyMovementRepository.class
+                .getMethod("findByBusinessDateOrderByCreatedAtDescIdDesc", LocalDate.class)
+                .getAnnotation(org.springframework.data.jpa.repository.EntityGraph.class);
+        assertThat(graph.attributePaths()).containsExactly("denominations");
     }
 
     @Test

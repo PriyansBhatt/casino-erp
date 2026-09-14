@@ -15,5 +15,7 @@ public interface ChipCustodyMovementRepository extends JpaRepository<ChipCustody
     boolean existsByMovementTypeAndPitTableId(ChipCustodyMovementType movementType, UUID pitTableId);
     Optional<ChipCustodyMovement> findFirstByOrderByCreatedAtAsc();
     List<ChipCustodyMovement> findByBusinessDateOrderByCreatedAtDesc(LocalDate businessDate);
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = "denominations")
+    List<ChipCustodyMovement> findByBusinessDateOrderByCreatedAtDescIdDesc(LocalDate businessDate);
     List<ChipCustodyMovement> findByPitTableIdOrderByCreatedAtAsc(UUID pitTableId);
 }

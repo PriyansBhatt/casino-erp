@@ -29,6 +29,7 @@ public class ChipCustodyService {
     private final AuditLogService audit;
     private final SessionFinancialPositionService financialPositions;
     private final PitTableAccessService tableAccess;
+    private final ChipControlReadRepository controlReads;
 
     public ChipCustodyService(ChipCustodyMovementRepository movements,
             ChipCustodyInventoryRepository inventory, PitTableRepository pitTables,
@@ -38,7 +39,7 @@ public class ChipCustodyService {
             SystemLockService systemLock, AuthenticatedUserService authenticatedUsers,
             CurrentUserRoleService currentRoles, RolePermissionService permissions,
             AuditLogService audit, SessionFinancialPositionService financialPositions,
-            PitTableAccessService tableAccess) {
+            PitTableAccessService tableAccess, ChipControlReadRepository controlReads) {
         this.movements = movements;
         this.inventory = inventory;
         this.pitTables = pitTables;
@@ -52,6 +53,7 @@ public class ChipCustodyService {
         this.audit = audit;
         this.financialPositions = financialPositions;
         this.tableAccess = tableAccess;
+        this.controlReads = controlReads;
     }
 
     @Transactional
@@ -349,8 +351,9 @@ public class ChipCustodyService {
             throw new RuntimeException("Access denied. Chip custody history is restricted.");
         }
         businessDates.validateBusinessDateIsOpen();
-        return movements.findByBusinessDateOrderByCreatedAtDesc(businessDates.getCurrentBusinessDate())
-                .stream().map(this::response).toList();
+        var rows = movements.findByBusinessDateOrderByCreatedAtDescIdDesc(businessDates.getCurrentBusinessDate());
+        var displays = controlReads.movementDisplays(rows.stream().map(ChipCustodyMovement::getId).toList());
+        return rows.stream().map(row -> response(row, displays.get(row.getId()))).toList();
     }
 
     private ChipCustodyMovement transfer(ChipCustodyMovementType movementType,
@@ -548,8 +551,8 @@ public class ChipCustodyService {
         CustomerSession session = customerSessions.findByIdForUpdate(sessionId)
                 .orElseThrow(() -> new com.casino.casinoerp.exception.ResourceNotFoundException(
                         "Customer session not found."));
-        if (!"OPEN".equalsIgnoreCase(session.getStatus())) {
-            throw new ResourceConflictException("Customer session must be OPEN for a chip custody transfer.");
+        if (!"OPEN".equalsIgnoreCase(session.getStatus()) || session.getExitTime() != null) {
+            throw new ResourceConflictException("Customer session must be OPEN and unexited for a chip custody transfer.");
         }
         if (!date.equals(session.getBusinessDate())) {
             throw new ResourceConflictException(
@@ -613,12 +616,16 @@ public class ChipCustodyService {
     }
 
     private ChipCustodyMovementResponse response(ChipCustodyMovement movement) {
+        return response(movement, null);
+    }
+
+    private ChipCustodyMovementResponse response(ChipCustodyMovement movement, ChipCustodyDisplayResponse display) {
         return new ChipCustodyMovementResponse(movement.getId(), movement.getMovementType(),
                 movement.getBusinessDate(), movement.getSourceType(), movement.getSourceReferenceId(),
                 movement.getDestinationType(), movement.getDestinationReferenceId(),
                 movement.getRelatedTransactionType(), movement.getRelatedTransactionId(),
                 movement.getCustomerSessionId(), movement.getPitTableId(),
                 Map.copyOf(movement.getDenominations()), movement.getTotalValue(),
-                movement.getCreatedBy(), movement.getCreatedAt(), movement.getCorrectionReason());
+                movement.getCreatedBy(), movement.getCreatedAt(), movement.getCorrectionReason(), display);
     }
 }

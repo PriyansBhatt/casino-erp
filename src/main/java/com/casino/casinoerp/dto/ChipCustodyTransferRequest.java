@@ -7,7 +7,8 @@ import jakarta.validation.constraints.Size;
 import java.util.Map;
 
 public record ChipCustodyTransferRequest(
-        @NotEmpty(message = "Denominations are required") Map<Integer, Long> denominations,
+        @NotEmpty(message = "Denominations are required") @com.fasterxml.jackson.databind.annotation.JsonDeserialize(contentUsing = StrictBuyInQuantityDeserializer.class)
+        Map<Integer, Long> denominations,
         @NotBlank(message = "Idempotency key is required")
         @Size(max = 100, message = "Idempotency key must not exceed 100 characters") String idempotencyKey
 ) {
