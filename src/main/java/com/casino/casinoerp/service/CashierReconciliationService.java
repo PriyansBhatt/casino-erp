@@ -12,15 +12,13 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.function.Function;
 
 @Service
 public class CashierReconciliationService {
     private static final Set<Integer> DENOMINATIONS = Set.of(5, 10, 20, 50, 100, 500, 1000);
     private static final BigDecimal MAX_AMOUNT = new BigDecimal("99999999999999999.99");
     private final CashierReconciliationRepository repository;
-    private final ChipBuyInRepository buyInRepository;
-    private final ChipCashOutRepository cashOutRepository;
+    private final CashierReconciliationReadRepository reads;
     private final BusinessDateService businessDateService;
     private final AuthenticatedUserService authenticatedUserService;
     private final CurrentUserRoleService currentUserRoleService;
@@ -28,13 +26,11 @@ public class CashierReconciliationService {
     private final SystemLockService systemLockService;
     private final AuditLogService auditLogService;
     private final UserRepository userRepository;
-    private final LosingReturnRepository losingReturnRepository;
     private final CashierOpeningBalanceRepository openingBalanceRepository;
 
     public CashierReconciliationService(
             CashierReconciliationRepository repository,
-            ChipBuyInRepository buyInRepository,
-            ChipCashOutRepository cashOutRepository,
+            CashierReconciliationReadRepository reads,
             BusinessDateService businessDateService,
             AuthenticatedUserService authenticatedUserService,
             CurrentUserRoleService currentUserRoleService,
@@ -42,11 +38,9 @@ public class CashierReconciliationService {
             SystemLockService systemLockService,
             AuditLogService auditLogService,
             UserRepository userRepository,
-            LosingReturnRepository losingReturnRepository,
             CashierOpeningBalanceRepository openingBalanceRepository) {
         this.repository = repository;
-        this.buyInRepository = buyInRepository;
-        this.cashOutRepository = cashOutRepository;
+        this.reads = reads;
         this.businessDateService = businessDateService;
         this.authenticatedUserService = authenticatedUserService;
         this.currentUserRoleService = currentUserRoleService;
@@ -54,7 +48,6 @@ public class CashierReconciliationService {
         this.systemLockService = systemLockService;
         this.auditLogService = auditLogService;
         this.userRepository = userRepository;
-        this.losingReturnRepository = losingReturnRepository;
         this.openingBalanceRepository = openingBalanceRepository;
     }
 
@@ -65,17 +58,20 @@ public class CashierReconciliationService {
         LocalDate businessDate = currentOpenBusinessDate();
         CashierReconciliation existing = repository
                 .findByCashierUserIdAndBusinessDate(actor.getId(), businessDate).orElse(null);
-        return response(actor, businessDate, existing, tenderSnapshot(actor.getId(), businessDate));
+        if (existing != null && "SUBMITTED".equals(existing.getLifecycleStatus())) return snapshot(actor, existing);
+        return liveResponse(actor, businessDate, existing, tenderSnapshot(actor.getId(), businessDate));
     }
 
     @Transactional(readOnly = true)
     public List<CashierReconciliationResponse> getSubmittedForCurrentBusinessDate() {
         validateReopenRole();
         LocalDate date = currentOpenBusinessDate();
-        return repository.findByBusinessDateOrderBySubmittedAtDesc(date).stream()
-                .map(value -> response(cashierUser(value.getCashierUserId()), date, value,
-                        tenderSnapshot(value.getCashierUserId(), date)))
-                .toList();
+        var values = repository.findByBusinessDateOrderBySubmittedAtDescIdDesc(date);
+        var ids = values.stream().map(CashierReconciliation::getCashierUserId).distinct().toList();
+        var actors = new HashMap<UUID, User>();
+        if (!ids.isEmpty()) userRepository.findAllById(ids).forEach(user -> actors.put(user.getId(), user));
+        return values.stream().map(value -> snapshot(
+                actors.getOrDefault(value.getCashierUserId(), unavailableUser(value.getCashierUserId())), value)).toList();
     }
 
     @Transactional(readOnly = true)
@@ -83,33 +79,42 @@ public class CashierReconciliationService {
         validateSubmitRole();
         User actor = authenticatedUserService.getRequiredUser();
         LocalDate businessDate = currentOpenBusinessDate();
+        validateExpectedDate(request.expectedBusinessDate(), businessDate);
         Map<Integer, Integer> denominations = normalizeDenominations(request.denominations());
         BigDecimal actual = calculateActual(denominations);
         TenderSnapshot tenders = tenderSnapshot(actor.getId(), businessDate);
         BigDecimal opening = requiredOpeningBalance(actor.getId(), businessDate);
-        return calculatedResponse(actor, businessDate, null, "PREVIEW", opening, actual,
-                denominations, null, request.remarks(), tenders);
+        var existing = repository.findByCashierUserIdAndBusinessDate(actor.getId(), businessDate).orElse(null);
+        return calculatedResponse(actor, businessDate, existing, opening, actual,
+                denominations, request.remarks(), tenders);
     }
 
     @Transactional
     public CashierReconciliationResponse submit(CashierReconciliationRequest request) {
         validateSubmitRole();
+        User actor = authenticatedUserService.getRequiredUser();
+        Map<Integer, Integer> denominations = normalizeDenominations(request.denominations());
+        BigDecimal actual = calculateActual(denominations);
+        if (request.idempotencyKey() == null || request.idempotencyKey().isBlank())
+            throw new IllegalArgumentException("Idempotency key is required.");
+        String key = request.idempotencyKey().trim();
+        // Serialize replay with reopen/resubmit as well as new posting, without requiring a new-operation gate.
+        businessDateService.lockLifecycleForReconciliation();
+        CashierReconciliation replay = repository.findByIdempotencyKey(key).orElse(null);
+        if (replay != null) {
+            validateReplay(replay, actor, request.expectedBusinessDate(), actual, denominations);
+            if (!"SUBMITTED".equals(replay.getLifecycleStatus()))
+                throw new ResourceConflictException("Reconciliation was reopened. Refresh, review the count and submit a new operation key.");
+            return snapshot(actor, replay);
+        }
         businessDateService.validateSettlementMutationAllowed();
         if (systemLockService.isSystemLocked()) {
             throw new RuntimeException("System is locked. Cashier reconciliation cannot be submitted.");
         }
-        User actor = authenticatedUserService.getRequiredUser();
         LocalDate businessDate = currentOpenBusinessDate();
-        Map<Integer, Integer> denominations = normalizeDenominations(request.denominations());
-        BigDecimal actual = calculateActual(denominations);
-        String key = request.idempotencyKey().trim();
-
-        CashierReconciliation replay = repository.findByIdempotencyKey(key).orElse(null);
-        if (replay != null) {
-            validateReplay(replay, actor, businessDate, actual, denominations);
-            return response(actor, businessDate, replay, tenderSnapshot(actor.getId(), businessDate));
-        }
+        validateExpectedDate(request.expectedBusinessDate(), businessDate);
         BigDecimal opening = requiredOpeningBalance(actor.getId(), businessDate);
+        validateAmount(opening);
         CashierReconciliation existing = repository.findByCashierUserIdAndBusinessDate(actor.getId(), businessDate).orElse(null);
         if (existing != null && !"REOPENED".equals(existing.getLifecycleStatus())) {
             throw new ResourceConflictException("Cashier reconciliation has already been submitted for this Business Date.");
@@ -119,6 +124,7 @@ public class CashierReconciliationService {
         BigDecimal expected = opening.add(tenders.cashReceived()).subtract(tenders.cashPaid());
         validateAmount(expected.abs());
         BigDecimal variance = actual.subtract(expected);
+        validateAmount(variance.abs());
         CashierReconciliation entity = existing == null ? new CashierReconciliation() : existing;
         entity.setBusinessDate(businessDate);
         entity.setCashierUserId(actor.getId());
@@ -143,7 +149,7 @@ public class CashierReconciliationService {
         CashierReconciliation saved = repository.save(entity);
         auditLogService.log("RECONCILIATION_SUBMITTED", "CASHIER_RECONCILIATION",
                 saved.getId(), actor.getId(), auditDetail(saved, null));
-        return response(actor, businessDate, saved, tenders);
+        return snapshot(actor, saved);
     }
 
     @Transactional
@@ -157,6 +163,7 @@ public class CashierReconciliationService {
         User actor = authenticatedUserService.getRequiredUser();
         CashierReconciliation entity = repository.findById(reconciliationId)
                 .orElseThrow(() -> new com.casino.casinoerp.exception.ResourceNotFoundException("Cashier reconciliation not found."));
+        validateExpectedDate(entity.getBusinessDate(), currentOpenBusinessDate());
         if (!"SUBMITTED".equals(entity.getLifecycleStatus())) {
             throw new ResourceConflictException("Only a submitted cashier reconciliation can be reopened.");
         }
@@ -168,8 +175,7 @@ public class CashierReconciliationService {
         auditLogService.log("RECONCILIATION_REOPENED", "CASHIER_RECONCILIATION",
                 saved.getId(), actor.getId(), auditDetail(saved, normalizedReason));
         User cashier = cashierUser(saved.getCashierUserId());
-        return response(cashier, saved.getBusinessDate(), saved,
-                tenderSnapshot(saved.getCashierUserId(), saved.getBusinessDate()));
+        return snapshot(cashier, saved);
     }
 
     @Transactional(readOnly = true)
@@ -180,65 +186,68 @@ public class CashierReconciliationService {
                         "Cashier reconciliation has already been submitted for this Business Date."); });
     }
 
-    private CashierReconciliationResponse response(
-            User actor, LocalDate businessDate, CashierReconciliation entity, TenderSnapshot tenders) {
-        if (entity == null) {
-            BigDecimal opening = openingBalanceRepository.findByCashierUserIdAndBusinessDate(actor.getId(), businessDate)
-                    .map(CashierOpeningBalance::getOpeningCashAmount).orElse(null);
-            BigDecimal expected = opening == null ? null
-                    : opening.add(tenders.cashReceived()).subtract(tenders.cashPaid());
-            return new CashierReconciliationResponse(null, businessDate, actor.getUsername(), actor.getFullName(),
-                    "NOT_SUBMITTED", "OPEN", opening, tenders.cashReceived(), tenders.cashPaid(), expected, null, null,
-                    tenders.buyIns(), tenders.cashOuts(), tenders.losingReturns(), Map.of(), null, null, null, null);
-        }
-        return new CashierReconciliationResponse(entity.getId(), businessDate, actor.getUsername(), actor.getFullName(),
-                entity.getStatus(), entity.getLifecycleStatus(), entity.getOpeningCash(), tenders.cashReceived(), tenders.cashPaid(),
+    /** Saved review deliberately omits tender totals: those were never stored in the submission. */
+    private CashierReconciliationResponse snapshot(User actor, CashierReconciliation entity) {
+        return new CashierReconciliationResponse(entity.getId(), entity.getBusinessDate(), actor.getUsername(), actor.getFullName(),
+                entity.getStatus(), entity.getLifecycleStatus(), entity.getOpeningCash(), null, null,
                 entity.getExpectedClosingCash(), entity.getActualClosingCash(), entity.getVariance(),
-                tenders.buyIns(), tenders.cashOuts(), tenders.losingReturns(), Map.copyOf(entity.getDenominations()),
-                entity.getSubmittedAt(), entity.getRemarks(), entity.getReopenedAt(), entity.getReopenReason());
+                null, null, null, Map.copyOf(entity.getDenominations()), entity.getSubmittedAt(), entity.getRemarks(),
+                entity.getReopenedAt(), entity.getReopenReason(), "SUBMITTED".equals(entity.getLifecycleStatus())
+                ? "SUBMITTED_SNAPSHOT" : "LAST_SUBMISSION_SNAPSHOT");
     }
 
-    private CashierReconciliationResponse calculatedResponse(
-            User actor, LocalDate businessDate, UUID id, String ignoredStatus, BigDecimal opening,
-            BigDecimal actual, Map<Integer, Integer> denominations, LocalDateTime submittedAt,
-            String remarks, TenderSnapshot tenders) {
+    private CashierReconciliationResponse liveResponse(User actor, LocalDate date,
+            CashierReconciliation existing, TenderSnapshot tenders) {
+        BigDecimal opening = openingBalanceRepository.findByCashierUserIdAndBusinessDate(actor.getId(), date)
+                .map(CashierOpeningBalance::getOpeningCashAmount).orElse(null);
+        BigDecimal expected = opening == null ? null : opening.add(tenders.cashReceived()).subtract(tenders.cashPaid());
+        if (expected != null) validateAmount(expected.abs());
+        return new CashierReconciliationResponse(existing == null ? null : existing.getId(), date,
+                actor.getUsername(), actor.getFullName(), existing == null ? "NOT_SUBMITTED" : null,
+                existing == null ? "OPEN" : existing.getLifecycleStatus(), opening, tenders.cashReceived(), tenders.cashPaid(),
+                expected, null, null, tenders.buyIns(), tenders.cashOuts(), tenders.losingReturns(), Map.of(),
+                existing == null ? null : existing.getSubmittedAt(), null,
+                existing == null ? null : existing.getReopenedAt(), existing == null ? null : existing.getReopenReason(), "LIVE");
+    }
+
+    private CashierReconciliationResponse calculatedResponse(User actor, LocalDate date,
+            CashierReconciliation existing, BigDecimal opening, BigDecimal actual,
+            Map<Integer, Integer> denominations, String remarks, TenderSnapshot tenders) {
         validateAmount(opening);
         BigDecimal expected = opening.add(tenders.cashReceived()).subtract(tenders.cashPaid());
         validateAmount(expected.abs());
         BigDecimal variance = actual.subtract(expected);
+        validateAmount(variance.abs());
         String status = variance.signum() == 0 ? "BALANCED" : variance.signum() > 0 ? "OVER" : "SHORT";
-        return new CashierReconciliationResponse(id, businessDate, actor.getUsername(), actor.getFullName(),
-                status, "OPEN", opening, tenders.cashReceived(), tenders.cashPaid(), expected, actual, variance,
-                tenders.buyIns(), tenders.cashOuts(), tenders.losingReturns(), denominations, submittedAt, normalizeRemarks(remarks), null, null);
+        return new CashierReconciliationResponse(existing == null ? null : existing.getId(), date,
+                actor.getUsername(), actor.getFullName(), status, existing == null ? "OPEN" : existing.getLifecycleStatus(),
+                opening, tenders.cashReceived(), tenders.cashPaid(), expected, actual, variance,
+                tenders.buyIns(), tenders.cashOuts(), tenders.losingReturns(), denominations,
+                existing == null ? null : existing.getSubmittedAt(), normalizeRemarks(remarks),
+                existing == null ? null : existing.getReopenedAt(), existing == null ? null : existing.getReopenReason(), "PREVIEW");
     }
 
     private TenderSnapshot tenderSnapshot(UUID actorId, LocalDate businessDate) {
-        List<ChipBuyIn> buyIns = buyInRepository.findByBusinessDateAndCreatedBy(businessDate, actorId);
-        List<ChipCashOut> cashOuts = cashOutRepository.findByBusinessDateAndCreatedBy(businessDate, actorId);
-        Map<String, TenderSummaryResponse> buyInTenders = summarize(
-                buyIns, ChipBuyIn::getPaymentMode, ChipBuyIn::getAmountReceived);
-        Map<String, TenderSummaryResponse> cashOutTenders = summarize(
-                cashOuts, ChipCashOut::getPaymentMode, ChipCashOut::getCashPaid);
-        List<LosingReturn> losingReturns = losingReturnRepository.findByBusinessDateAndCreatedBy(businessDate, actorId);
-        Map<String, TenderSummaryResponse> losingReturnTenders = summarize(
-                losingReturns, LosingReturn::getPaymentMode, LosingReturn::getAmountPaid);
-        return new TenderSnapshot(buyInTenders, cashOutTenders,
-                losingReturnTenders, buyInTenders.get("CASH").amount(),
-                cashOutTenders.get("CASH").amount().add(losingReturnTenders.get("CASH").amount()));
+        var rows = reads.tenders(actorId, businessDate);
+        var buyIns = summarize(rows, "BUY_IN");
+        var cashOuts = summarize(rows, "CASH_OUT");
+        var losingReturns = summarize(rows, "LOSING_RETURN");
+        return new TenderSnapshot(buyIns, cashOuts, losingReturns, buyIns.get("CASH").amount(),
+                cashOuts.get("CASH").amount().add(losingReturns.get("CASH").amount()));
     }
 
-    private <T> Map<String, TenderSummaryResponse> summarize(
-            List<T> values, Function<T, String> mode, Function<T, BigDecimal> amount) {
+    private Map<String, TenderSummaryResponse> summarize(List<CashierReconciliationReadRepository.Tender> rows, String source) {
         Map<String, TenderSummaryResponse> result = new LinkedHashMap<>();
-        for (PaymentMode paymentMode : PaymentMode.values()) {
-            List<T> matching = values.stream().filter(value -> paymentMode.name().equals(mode.apply(value))).toList();
-            BigDecimal total = matching.stream().map(amount).reduce(BigDecimal.ZERO, BigDecimal::add);
-            result.put(paymentMode.name(), new TenderSummaryResponse(matching.size(), total));
+        for (PaymentMode mode : PaymentMode.values()) result.put(mode.name(), new TenderSummaryResponse(0, BigDecimal.ZERO));
+        for (var row : rows) {
+            if (source.equals(row.source()) && result.containsKey(row.paymentMode()))
+                result.put(row.paymentMode(), new TenderSummaryResponse(row.count(), row.amount()));
         }
         return Map.copyOf(result);
     }
 
     private Map<Integer, Integer> normalizeDenominations(Map<Integer, Integer> values) {
+        if (values == null) throw new IllegalArgumentException("Cash denominations are required.");
         Map<Integer, Integer> normalized = new LinkedHashMap<>();
         values.forEach((denomination, quantity) -> {
             if (!DENOMINATIONS.contains(denomination)) throw new IllegalArgumentException("Unsupported cash denomination: " + denomination);
@@ -264,7 +273,7 @@ public class CashierReconciliationService {
 
     private void validateReplay(CashierReconciliation value, User actor, LocalDate date,
                                 BigDecimal actual, Map<Integer, Integer> denominations) {
-        if (!actor.getId().equals(value.getCashierUserId()) || !date.equals(value.getBusinessDate())
+        if (!actor.getId().equals(value.getCashierUserId()) || !Objects.equals(date, value.getBusinessDate())
                 || actual.compareTo(value.getActualClosingCash()) != 0
                 || !denominations.equals(value.getDenominations())) {
             throw new ResourceConflictException("Idempotency key has already been used for a different reconciliation.");
@@ -294,6 +303,13 @@ public class CashierReconciliationService {
         return businessDateService.getCurrentOpenBusinessDate()
                 .orElseThrow(() -> new IllegalStateException("Current business date is not opened."))
                 .getBusinessDate();
+    }
+    private void validateExpectedDate(LocalDate expected, LocalDate current) {
+        if (!current.equals(expected)) throw new ResourceConflictException(
+                "Business Date changed or was not supplied. Refresh and recount for the current operational date.");
+    }
+    private User unavailableUser(UUID id) {
+        User user = new User(); user.setId(id); user.setUsername("Unavailable"); user.setFullName("Unavailable"); return user;
     }
     private void validateAmount(BigDecimal value) {
         if (value == null || value.signum() < 0 || value.compareTo(MAX_AMOUNT) > 0)

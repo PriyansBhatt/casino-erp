@@ -148,6 +148,12 @@ public class BusinessDateService {
         }
     }
 
+    /** Serializes completed reconciliation replay with reopen without changing settlement eligibility. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void lockLifecycleForReconciliation() {
+        businessDateRepository.acquireLifecycleLock();
+    }
+
     @Transactional(propagation = Propagation.MANDATORY)
     public void validateSettlementMutationAllowed() {
         businessDateRepository.acquireLifecycleLock();

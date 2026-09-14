@@ -7,9 +7,7 @@ import com.casino.casinoerp.entity.CashierOpeningBalance;
 import com.casino.casinoerp.entity.User;
 import com.casino.casinoerp.exception.ResourceConflictException;
 import com.casino.casinoerp.repository.CashierOpeningBalanceRepository;
-import com.casino.casinoerp.repository.ChipBuyInRepository;
-import com.casino.casinoerp.repository.ChipCashOutRepository;
-import com.casino.casinoerp.repository.LosingReturnRepository;
+import com.casino.casinoerp.repository.CashierReconciliationReadRepository;
 import com.casino.casinoerp.security.Role;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,9 +23,7 @@ import java.util.UUID;
 public class CashierOpeningBalanceService {
     private static final BigDecimal MAX_AMOUNT = new BigDecimal("99999999999999999.99");
     private final CashierOpeningBalanceRepository repository;
-    private final ChipBuyInRepository buyIns;
-    private final ChipCashOutRepository cashOuts;
-    private final LosingReturnRepository losingReturns;
+    private final CashierReconciliationReadRepository reads;
     private final BusinessDateService businessDateService;
     private final AuthenticatedUserService authenticatedUserService;
     private final CurrentUserRoleService currentUserRoleService;
@@ -35,15 +31,12 @@ public class CashierOpeningBalanceService {
     private final AuditLogService auditLogService;
 
     public CashierOpeningBalanceService(CashierOpeningBalanceRepository repository,
-            ChipBuyInRepository buyIns, ChipCashOutRepository cashOuts,
-            LosingReturnRepository losingReturns, BusinessDateService businessDateService,
+            CashierReconciliationReadRepository reads, BusinessDateService businessDateService,
             AuthenticatedUserService authenticatedUserService,
             CurrentUserRoleService currentUserRoleService, SystemLockService systemLockService,
             AuditLogService auditLogService) {
         this.repository = repository;
-        this.buyIns = buyIns;
-        this.cashOuts = cashOuts;
-        this.losingReturns = losingReturns;
+        this.reads = reads;
         this.businessDateService = businessDateService;
         this.authenticatedUserService = authenticatedUserService;
         this.currentUserRoleService = currentUserRoleService;
@@ -65,20 +58,21 @@ public class CashierOpeningBalanceService {
         validateCreateRole();
         businessDateService.validateNewOperationalMutationAllowed();
         if (request.openingCashAmount() == null || request.openingCashAmount().signum() < 0
-                || request.openingCashAmount().compareTo(MAX_AMOUNT) > 0) {
-            throw new IllegalArgumentException("Opening Cash must be zero or greater and within supported limits.");
+                || request.openingCashAmount().compareTo(MAX_AMOUNT) > 0
+                || request.openingCashAmount().scale() > 2) {
+            throw new IllegalArgumentException("Opening Cash must be zero or greater, within supported limits, with at most two decimal places.");
         }
         if (systemLockService.isSystemLocked()) {
             throw new ResourceConflictException("System is locked. Cashier opening balance cannot be established.");
         }
         User actor = authenticatedUserService.getRequiredUser();
         LocalDate date = currentOpenBusinessDate();
+        if (!date.equals(request.expectedBusinessDate()))
+            throw new ResourceConflictException("Business Date changed or was not supplied. Refresh and review Opening Cash for the current date.");
         if (repository.findByCashierUserIdAndBusinessDate(actor.getId(), date).isPresent()) {
             throw new ResourceConflictException("Opening Cash has already been established for this cashier and Business Date.");
         }
-        if (!buyIns.findByBusinessDateAndCreatedBy(date, actor.getId()).isEmpty()
-                || !cashOuts.findByBusinessDateAndCreatedBy(date, actor.getId()).isEmpty()
-                || !losingReturns.findByBusinessDateAndCreatedBy(date, actor.getId()).isEmpty()) {
+        if (reads.hasActivity(actor.getId(), date)) {
             throw new ResourceConflictException("Opening Cash cannot be established after financial activity has been posted for this Business Date.");
         }
 

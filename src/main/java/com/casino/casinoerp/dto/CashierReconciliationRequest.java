@@ -9,7 +9,10 @@ import java.util.Map;
 
 public record CashierReconciliationRequest(
         @Deprecated BigDecimal openingCash,
-        @NotNull Map<Integer, Integer> denominations,
+        @NotNull
+        @com.fasterxml.jackson.databind.annotation.JsonDeserialize(contentUsing = StrictCashCountQuantityDeserializer.class)
+        Map<Integer, @NotNull @jakarta.validation.constraints.PositiveOrZero Integer> denominations,
         @Size(max = 1000) String remarks,
-        @NotBlank @Size(max = 100) String idempotencyKey
+        @NotBlank @Size(max = 100) String idempotencyKey,
+        @NotNull java.time.LocalDate expectedBusinessDate
 ) {}

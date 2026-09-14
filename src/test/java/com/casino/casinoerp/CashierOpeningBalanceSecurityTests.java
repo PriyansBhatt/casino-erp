@@ -25,7 +25,7 @@ class CashierOpeningBalanceSecurityTests {
     @Autowired MockMvc mockMvc;
     @MockitoBean CashierOpeningBalanceService service;
     @MockitoBean JwtService jwtService;
-    private static final String BODY = "{\"openingCashAmount\":1000}";
+    private static final String BODY = "{\"expectedBusinessDate\":\"2026-08-08\",\"openingCashAmount\":1000}";
 
     @ParameterizedTest
     @ValueSource(strings = {"CASHIER", "DIRECTOR", "SUPER_ADMIN"})

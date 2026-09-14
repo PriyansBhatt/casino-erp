@@ -26,5 +26,6 @@ public record CashierReconciliationResponse(
         LocalDateTime submittedAt,
         String remarks,
         LocalDateTime reopenedAt,
-        String reopenReason
+        String reopenReason,
+        String calculationBasis
 ) {}

@@ -25,7 +25,7 @@ class CashierReconciliationSecurityTests {
     @Autowired MockMvc mockMvc;
     @MockitoBean CashierReconciliationService service;
     @MockitoBean JwtService jwtService;
-    private static final String BODY = "{\"openingCash\":0,\"denominations\":{},\"idempotencyKey\":\"test-key\"}";
+    private static final String BODY = "{\"expectedBusinessDate\":\"2026-08-08\",\"openingCash\":0,\"denominations\":{},\"idempotencyKey\":\"test-key\"}";
 
     @ParameterizedTest @ValueSource(strings = {"CASHIER", "DIRECTOR", "SUPER_ADMIN"})
     void approvedRolesCanView(String role) throws Exception {
@@ -74,5 +74,17 @@ class CashierReconciliationSecurityTests {
     @Test void unauthenticatedRequestsAreDenied() throws Exception {
         mockMvc.perform(get("/api/cashier-reconciliation/current")).andExpect(status().isForbidden());
         mockMvc.perform(post("/api/cashier-reconciliation/submit").contentType(MediaType.APPLICATION_JSON).content(BODY)).andExpect(status().isForbidden());
+    }
+    @ParameterizedTest @ValueSource(strings={"1.5", "\"2\"", "null", "-1", "2147483648", "true"})
+    void malformedNoteQuantitiesReturn400(String quantity) throws Exception {
+        mockMvc.perform(post("/api/cashier-reconciliation/submit").with(user("cashier").roles("CASHIER"))
+                .contentType(MediaType.APPLICATION_JSON).content(BODY.replace("\"denominations\":{}", "\"denominations\":{\"1000\":"+quantity+"}")))
+                .andExpect(status().isBadRequest());
+        org.mockito.Mockito.verify(service, org.mockito.Mockito.never()).submit(org.mockito.ArgumentMatchers.any());
+    }
+    @Test void expectedDateIsRequired() throws Exception {
+        mockMvc.perform(post("/api/cashier-reconciliation/submit").with(user("cashier").roles("CASHIER"))
+                .contentType(MediaType.APPLICATION_JSON).content("{\"denominations\":{},\"idempotencyKey\":\"k\"}"))
+                .andExpect(status().isBadRequest());
     }
 }

@@ -12,4 +12,7 @@ public interface CashierReconciliationRepository extends JpaRepository<CashierRe
     Optional<CashierReconciliation> findByCashierUserIdAndBusinessDate(UUID cashierUserId, LocalDate businessDate);
     Optional<CashierReconciliation> findByIdempotencyKey(String idempotencyKey);
     List<CashierReconciliation> findByBusinessDateOrderBySubmittedAtDesc(LocalDate businessDate);
+
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = "denominations")
+    List<CashierReconciliation> findByBusinessDateOrderBySubmittedAtDescIdDesc(LocalDate businessDate);
 }
