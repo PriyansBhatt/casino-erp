@@ -33,6 +33,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/business-status/current")
                         .authenticated()
 
+                        .requestMatchers(HttpMethod.GET, "/api/machines", "/api/machines/**")
+                        .hasAnyRole(Role.SUPER_ADMIN.name(), Role.DIRECTOR.name())
+                        .requestMatchers("/api/machines", "/api/machines/**")
+                        .hasRole(Role.SUPER_ADMIN.name())
+
                         .requestMatchers(HttpMethod.GET, "/api/attendance")
                         .hasAnyRole(Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())
 
