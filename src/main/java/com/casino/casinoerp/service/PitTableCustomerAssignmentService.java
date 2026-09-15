@@ -180,13 +180,13 @@ public class PitTableCustomerAssignmentService {
     }
 
     private CustomerSession requiredOpenSession(UUID sessionId, UUID customerId, LocalDate businessDate) {
-        CustomerSession session = sessionRepository.findById(sessionId)
+        CustomerSession session = sessionRepository.findByIdForUpdate(sessionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Customer session not found."));
         if (!customerId.equals(session.getCustomerId())) {
             throw new IllegalArgumentException("Customer session does not belong to the supplied customer.");
         }
-        if (!"OPEN".equalsIgnoreCase(session.getStatus())) {
-            throw new IllegalArgumentException("Customer session must be OPEN.");
+        if ((!"OPEN".equalsIgnoreCase(session.getStatus()) || session.getExitTime() != null)) {
+            throw new IllegalArgumentException("Customer session must be OPEN and unexited.");
         }
         if (!businessDate.equals(session.getBusinessDate())) {
             throw new IllegalArgumentException("Customer session does not belong to the current OPEN Business Date.");

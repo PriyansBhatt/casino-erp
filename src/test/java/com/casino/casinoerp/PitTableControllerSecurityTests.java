@@ -35,7 +35,7 @@ class PitTableControllerSecurityTests {
     private static final UUID TABLE_ID = UUID.fromString("00000000-0000-0000-0000-000000000010");
     private static final String OPEN_REQUEST = """
             {"denominations":{"5000":20},"remarks":"Opening float",
-             "idempotencyKey":"open-table-test-1"}
+             "idempotencyKey":"open-table-test-1","expectedBusinessDate":"2026-09-02"}
             """;
     @Autowired MockMvc mockMvc;
     @MockitoBean PitTableService service;

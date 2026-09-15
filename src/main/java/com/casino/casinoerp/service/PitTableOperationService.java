@@ -22,10 +22,8 @@ import java.util.UUID;
 public class PitTableOperationService {
     private final PhysicalPitTableRepository physicalTables;
     private final PitTableRepository operations;
-    private final PitTableCustomerAssignmentRepository assignments;
-    private final VerifiedGamingResultRepository results;
+    private final PitReadRepository reads;
     private final PitTableStaffAssignmentRepository staffAssignments;
-    private final ChipCustodyMovementRepository custodyMovements;
     private final ChipCustodyService custody;
     private final BusinessDateService businessDates;
     private final SystemLockService systemLock;
@@ -37,20 +35,17 @@ public class PitTableOperationService {
 
     public PitTableOperationService(
             PhysicalPitTableRepository physicalTables, PitTableRepository operations,
-            PitTableCustomerAssignmentRepository assignments,
-            VerifiedGamingResultRepository results,
+            PitReadRepository reads,
             PitTableStaffAssignmentRepository staffAssignments,
-            ChipCustodyMovementRepository custodyMovements, ChipCustodyService custody,
+            ChipCustodyService custody,
             BusinessDateService businessDates, SystemLockService systemLock,
             CurrentUserRoleService currentRole, RolePermissionService permissions,
             AuthenticatedUserService authenticatedUser, AuditLogService audit,
             PitTableAccessService tableAccess) {
         this.physicalTables = physicalTables;
         this.operations = operations;
-        this.assignments = assignments;
-        this.results = results;
+        this.reads = reads;
         this.staffAssignments = staffAssignments;
-        this.custodyMovements = custodyMovements;
         this.custody = custody;
         this.businessDates = businessDates;
         this.systemLock = systemLock;
@@ -64,21 +59,23 @@ public class PitTableOperationService {
     @Transactional
     public PitTableResponse open(UUID physicalTableId, OpenPitTableOperationRequest request) {
         validateRole();
+        businessDates.lockLifecycleForPitOpening();
+        String key = request.idempotencyKey().trim();
+        String remarks = normalizeRemarks(request.remarks());
+        ChipCustodyTransferRequest custodyRequest = new ChipCustodyTransferRequest(request.denominations(), key);
+        PitTable replay = operations.findByOpeningIdempotencyKey(key).orElse(null);
+        if (replay != null) {
+            validateReplay(replay, physicalTableId, remarks, custodyRequest, request.expectedBusinessDate());
+            return response(replay);
+        }
         businessDates.validateNewOperationalMutationAllowed();
         if (systemLock.isSystemLocked()) {
             throw new ResourceConflictException("System is locked. Pit table operations are not allowed.");
         }
         businessDates.validateBusinessDateIsOpen();
         LocalDate businessDate = businessDates.getCurrentBusinessDate();
-        String key = request.idempotencyKey().trim();
-        String remarks = normalizeRemarks(request.remarks());
-        ChipCustodyTransferRequest custodyRequest =
-                new ChipCustodyTransferRequest(request.denominations(), key);
-
-        PitTable replay = operations.findByOpeningIdempotencyKey(key).orElse(null);
-        if (replay != null) {
-            validateReplay(replay, physicalTableId, remarks, custodyRequest);
-            return response(replay);
+        if (!businessDate.equals(request.expectedBusinessDate())) {
+            throw new ResourceConflictException("Business Date changed. Refresh and review the opening denominations for the current date.");
         }
 
         PhysicalPitTable physical = physicalTables.findByIdForUpdate(physicalTableId)
@@ -88,7 +85,7 @@ public class PitTableOperationService {
         }
         replay = operations.findByOpeningIdempotencyKey(key).orElse(null);
         if (replay != null) {
-            validateReplay(replay, physicalTableId, remarks, custodyRequest);
+            validateReplay(replay, physicalTableId, remarks, custodyRequest, request.expectedBusinessDate());
             return response(replay);
         }
         if (operations.findByPhysicalTableIdAndBusinessDate(physicalTableId, businessDate).isPresent()) {
@@ -137,13 +134,15 @@ public class PitTableOperationService {
         LocalDate date = businessDates.getCurrentBusinessDate();
         List<PhysicalPitTable> physical = physicalTables.findAllByOrderByTableCodeAsc();
         Map<UUID, PitTable> operationByPhysicalTable = new HashMap<>();
-        physical.forEach(table -> operations.findByPhysicalTableIdAndBusinessDate(table.getId(), date)
-                .ifPresent(operation -> operationByPhysicalTable.put(table.getId(), operation)));
+        operations.findByBusinessDate(date).forEach(operation ->
+                operationByPhysicalTable.put(operation.getPhysicalTableId(), operation));
 
         List<UUID> operationIds = operationByPhysicalTable.values().stream()
                 .map(PitTable::getId).toList();
         Map<UUID, Map<PitTableStaffAssignmentRole, PitTableActiveStaffSummary>> staffByOperation =
                 activeStaffByOperation(operationIds);
+
+        Map<UUID, PitReadRepository.Totals> totals = reads.summarize(operationIds);
 
         if (tableAccess.isDealer()) {
             UUID assignedOperationId = tableAccess.currentDealerOperationId().orElse(null);
@@ -155,12 +154,12 @@ public class PitTableOperationService {
                         PitTable operation = operationByPhysicalTable.get(table.getId());
                         return operation != null && assignedOperationId.equals(operation.getId());
                     })
-                    .map(table -> overview(table, date, operationByPhysicalTable.get(table.getId()), staffByOperation))
+                    .map(table -> overview(table, date, operationByPhysicalTable.get(table.getId()), staffByOperation, totals))
                     .toList();
         }
 
         return physical.stream().map(table -> overview(table, date,
-                operationByPhysicalTable.get(table.getId()), staffByOperation)).toList();
+                operationByPhysicalTable.get(table.getId()), staffByOperation, totals)).toList();
     }
 
     @Transactional(readOnly = true)
@@ -177,7 +176,8 @@ public class PitTableOperationService {
             PhysicalPitTable physical,
             LocalDate date,
             PitTable operation,
-            Map<UUID, Map<PitTableStaffAssignmentRole, PitTableActiveStaffSummary>> staffByOperation) {
+            Map<UUID, Map<PitTableStaffAssignmentRole, PitTableActiveStaffSummary>> staffByOperation,
+            Map<UUID, PitReadRepository.Totals> totals) {
         if (operation == null) {
             return new PitTableOverviewResponse(physical.getId(), physical.getTableCode(),
                     physical.getTableName(), physical.getGameType(), physical.getMaxPlayers(),
@@ -185,18 +185,9 @@ public class PitTableOperationService {
                     0, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
                     null, null);
         }
-        long players = assignments.findByPitTableIdAndStatusOrderByJoinedAtAsc(
-                operation.getId(), PitTableCustomerAssignmentStatus.ACTIVE).size();
-        BigDecimal chipIn = custodyMovements.findByPitTableIdOrderByCreatedAtAsc(operation.getId())
-                .stream().filter(value -> value.getMovementType() == ChipCustodyMovementType.CUSTOMER_TO_TABLE)
-                .map(ChipCustodyMovement::getTotalValue).reduce(BigDecimal.ZERO, BigDecimal::add);
-        List<VerifiedGamingResult> tableResults = results.findByPitTableId(operation.getId());
-        BigDecimal wins = tableResults.stream()
-                .filter(value -> value.getResultType() == VerifiedGamingResultType.WIN)
-                .map(VerifiedGamingResult::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal losses = tableResults.stream()
-                .filter(value -> value.getResultType() == VerifiedGamingResultType.LOSS)
-                .map(VerifiedGamingResult::getAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        PitReadRepository.Totals total = Objects.requireNonNull(totals.get(operation.getId()), "Pit operation aggregates are unavailable");
+        long players = total.players();
+        BigDecimal chipIn = total.chipIn(), wins = total.wins(), losses = total.losses();
         Map<PitTableStaffAssignmentRole, PitTableActiveStaffSummary> activeStaff =
                 staffByOperation.getOrDefault(operation.getId(), Map.of());
         return new PitTableOverviewResponse(physical.getId(), physical.getTableCode(),
@@ -225,8 +216,9 @@ public class PitTableOperationService {
     }
 
     private void validateReplay(PitTable replay, UUID physicalTableId, String remarks,
-            ChipCustodyTransferRequest custodyRequest) {
-        if (!physicalTableId.equals(replay.getPhysicalTableId())
+            ChipCustodyTransferRequest custodyRequest, LocalDate expectedDate) {
+        if (!Objects.equals(expectedDate, replay.getBusinessDate())
+                || !physicalTableId.equals(replay.getPhysicalTableId())
                 || !Objects.equals(remarks, normalizeRemarks(replay.getRemarks()))) {
             throw new ResourceConflictException(
                     "Idempotency key has already been used for a different Pit Table opening.");

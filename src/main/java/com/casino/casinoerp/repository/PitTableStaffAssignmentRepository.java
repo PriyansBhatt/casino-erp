@@ -16,6 +16,7 @@ import java.util.UUID;
 import java.time.LocalDate;
 
 public interface PitTableStaffAssignmentRepository extends JpaRepository<PitTableStaffAssignment, UUID> {
+    boolean existsByPitTableIdAndEndedAtIsNull(UUID pitTableId);
     List<PitTableStaffAssignment> findByPitTableIdAndEndedAtIsNullOrderByAssignmentRoleAsc(UUID pitTableId);
     List<PitTableStaffAssignment> findByPitTableIdOrderByStartedAtAsc(UUID pitTableId);
     Optional<PitTableStaffAssignment> findByPitTableIdAndAssignmentRoleAndEndedAtIsNull(

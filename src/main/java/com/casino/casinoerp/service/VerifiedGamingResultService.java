@@ -116,8 +116,8 @@ public class VerifiedGamingResultService {
         if (!request.customerId().equals(session.getCustomerId())) {
             throw new IllegalArgumentException("Customer session does not belong to the supplied customer.");
         }
-        if (!"OPEN".equalsIgnoreCase(session.getStatus())) {
-            throw new IllegalArgumentException("Customer session must be OPEN.");
+        if ((!"OPEN".equalsIgnoreCase(session.getStatus()) || session.getExitTime() != null)) {
+            throw new IllegalArgumentException("Customer session must be OPEN and unexited.");
         }
 
         LocalDate businessDate = businessDateService.getCurrentBusinessDate();

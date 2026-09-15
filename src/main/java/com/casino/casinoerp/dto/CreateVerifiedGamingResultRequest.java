@@ -15,7 +15,8 @@ public record CreateVerifiedGamingResultRequest(
         @NotNull(message = "Pit table assignment ID is required") UUID assignmentId,
         @NotNull(message = "Source type is required") VerifiedGamingSourceType sourceType,
         @NotNull(message = "Result type is required") VerifiedGamingResultType resultType,
-        @NotNull(message = "Denominations are required") Map<Integer, Integer> denominations,
+        @NotNull(message = "Denominations are required") @com.fasterxml.jackson.databind.annotation.JsonDeserialize(contentUsing = StrictCashCountQuantityDeserializer.class)
+        Map<Integer, @jakarta.validation.constraints.NotNull @jakarta.validation.constraints.PositiveOrZero Integer> denominations,
         BigDecimal amount,
         @jakarta.validation.constraints.NotBlank(message = "Idempotency key is required")
         @jakarta.validation.constraints.Size(max = 100, message = "Idempotency key must not exceed 100 characters")

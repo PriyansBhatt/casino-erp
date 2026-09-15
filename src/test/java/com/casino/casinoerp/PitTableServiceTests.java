@@ -30,9 +30,10 @@ class PitTableServiceTests {
             mock(com.casino.casinoerp.repository.PitTableCustomerAssignmentRepository.class);
     private final ChipCustodyService chipCustodyService = mock(ChipCustodyService.class);
     private final PitTableAccessService tableAccess = mock(PitTableAccessService.class);
+    private final com.casino.casinoerp.repository.PitTableStaffAssignmentRepository staff = mock(com.casino.casinoerp.repository.PitTableStaffAssignmentRepository.class);
     private final PitTableService service = new PitTableService(repository, businessDateService,
             systemLockService, auditLogService, currentUserRoleService, new RolePermissionService(),
-            assignmentRepository, chipCustodyService, tableAccess);
+            assignmentRepository, chipCustodyService, tableAccess, staff);
     private final LocalDate businessDate = LocalDate.of(2026, 8, 8);
     private final CreatePitTableRequest request = new CreatePitTableRequest(
             " t-bac-10 ", "Baccarat Table 10", "Baccarat", new BigDecimal("100000"), null);
@@ -45,6 +46,19 @@ class PitTableServiceTests {
         when(repository.save(any())).thenAnswer(call -> {
             PitTable table = call.getArgument(0); table.setId(UUID.randomUUID()); return table;
         });
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"DEALER", "PIT_SUPERVISOR"})
+    void activeStaffBlocksCloseUntilExplicitlyEnded(String role) {
+        PitTable table = new PitTable(); table.setId(UUID.randomUUID()); table.setStatus("OPEN"); table.setBusinessDate(businessDate);
+        when(repository.findByIdForUpdate(table.getId())).thenReturn(Optional.of(table));
+        when(staff.existsByPitTableIdAndEndedAtIsNull(table.getId())).thenReturn(true);
+        assertThatThrownBy(() -> service.closeTable(table.getId(), BigDecimal.ZERO)).hasMessageContaining("End all active");
+        verify(repository, never()).save(any());
+        when(staff.existsByPitTableIdAndEndedAtIsNull(table.getId())).thenReturn(false);
+        assertThat(service.closeTable(table.getId(), BigDecimal.ZERO).getStatus()).isEqualTo("CLOSED");
+        verify(chipCustodyService).validateTableCustodySettled(any());
     }
 
     @Test void createUsesServerBusinessDateAndGeneratedUuid() {

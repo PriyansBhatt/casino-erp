@@ -44,7 +44,7 @@ public interface CustomerRepository extends JpaRepository<Customer, UUID> {
                    a.id as "activeAssignmentId"
               from customer.customers c
               join session.customer_sessions s on s.customer_id = c.id
-               and upper(s.status) = 'OPEN' and s.business_date = :businessDate
+               and upper(s.status) = 'OPEN' and s.exit_time is null and s.business_date = :businessDate
               left join casino.pit_table_customer_assignments a
                 on a.customer_session_id = s.id and a.status = 'ACTIVE'
              where (lower(c.customer_code) like lower(concat('%', :query, '%'))

@@ -27,6 +27,7 @@ public class PitTableService {
     private final PitTableCustomerAssignmentRepository assignmentRepository;
     private final ChipCustodyService chipCustodyService;
     private final PitTableAccessService tableAccess;
+    private final com.casino.casinoerp.repository.PitTableStaffAssignmentRepository staffAssignments;
 
     public PitTableService(
             PitTableRepository repository,
@@ -36,7 +37,8 @@ public class PitTableService {
             CurrentUserRoleService currentUserRoleService,
             RolePermissionService rolePermissionService,
             PitTableCustomerAssignmentRepository assignmentRepository,
-            ChipCustodyService chipCustodyService, PitTableAccessService tableAccess) {
+            ChipCustodyService chipCustodyService, PitTableAccessService tableAccess,
+            com.casino.casinoerp.repository.PitTableStaffAssignmentRepository staffAssignments) {
 
         this.repository = repository;
         this.businessDateService = businessDateService;
@@ -47,6 +49,7 @@ public class PitTableService {
         this.assignmentRepository = assignmentRepository;
         this.chipCustodyService = chipCustodyService;
         this.tableAccess = tableAccess;
+        this.staffAssignments = staffAssignments;
     }
 
     private void validatePitRole() {
@@ -100,6 +103,9 @@ public class PitTableService {
                 tableId, PitTableCustomerAssignmentStatus.ACTIVE).isEmpty()) {
             throw new ResourceConflictException(
                     "All active customer assignments must leave the Pit Table before it can be closed.");
+        }
+        if (staffAssignments.existsByPitTableIdAndEndedAtIsNull(tableId)) {
+            throw new ResourceConflictException("End all active Dealer and Pit Supervisor assignments explicitly before closing this table.");
         }
         chipCustodyService.validateTableCustodySettled(tableId);
 

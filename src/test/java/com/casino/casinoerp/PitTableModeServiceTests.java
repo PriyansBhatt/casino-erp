@@ -73,6 +73,22 @@ class PitTableModeServiceTests {
         verify(custody, never()).summarizeCustomerSessions(any());
     }
 
+    @Test void operationResultsIncludeLeftAssignmentsWithoutLoadingTheirHistories() {
+        UUID id=UUID.randomUUID();
+        when(tables.findById(id)).thenReturn(Optional.of(table(id)));
+        when(custodyService.tableInventory(id)).thenReturn(new com.casino.casinoerp.dto.ChipCustodyInventoryResponse(ChipCustodyLocationType.PIT_TABLE,id,true,Map.of(),BigDecimal.ZERO));
+        var left=mock(PitTablePlayerResultSummaryProjection.class);
+        when(left.getAssignmentId()).thenReturn(UUID.randomUUID());
+        when(left.getVerifiedWinTotal()).thenReturn(new BigDecimal("500"));
+        when(left.getVerifiedLossTotal()).thenReturn(new BigDecimal("1000"));
+        when(results.summarizeByTable(id)).thenReturn(List.of(left));
+        var value=service.snapshot(id);
+        assertThat(value.players()).isEmpty();
+        assertThat(value.operationVerifiedWins()).isEqualByComparingTo("500");
+        assertThat(value.operationVerifiedLosses()).isEqualByComparingTo("1000");
+        verify(results,never()).findByPitTableId(any());
+    }
+
     @Test
     void exactOperationAccessIsRequiredBeforeSnapshotQueries() {
         UUID tableId = UUID.randomUUID();

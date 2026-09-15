@@ -81,6 +81,17 @@ class VerifiedGamingResultServiceTests {
         verify(auditLogService).log(eq("CREATE_VERIFIED_GAMING_RESULT"), any(), any(), eq(actorId), any());
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.EnumSource(VerifiedGamingResultType.class)
+    void exitedSessionCannotPostWinOrLoss(VerifiedGamingResultType type) {
+        var exited=session("OPEN",customerId,businessDate); exited.setExitTime(java.time.LocalDateTime.now());
+        when(sessionRepository.findByIdForUpdate(sessionId)).thenReturn(Optional.of(exited));
+        var base=request(new BigDecimal("2500"));
+        var input=new CreateVerifiedGamingResultRequest(base.customerId(),base.customerSessionId(),base.pitTableId(),base.assignmentId(),base.sourceType(),type,base.denominations(),base.amount(),base.idempotencyKey());
+        assertThatThrownBy(() -> service.create(input)).hasMessageContaining("unexited");
+        verify(repository,never()).save(any());
+    }
+
     @Test void missingCustomerRejected() {
         when(customerRepository.findById(customerId)).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.create(request(BigDecimal.ONE)))
@@ -108,7 +119,7 @@ class VerifiedGamingResultServiceTests {
     @Test void closedSessionRejected() {
         when(sessionRepository.findByIdForUpdate(sessionId)).thenReturn(Optional.of(session("CLOSED", customerId, businessDate)));
         assertThatThrownBy(() -> service.create(request(BigDecimal.ONE)))
-                .hasMessage("Customer session must be OPEN.");
+                .hasMessage("Customer session must be OPEN and unexited.");
     }
 
     @Test void closedTableRejected() {

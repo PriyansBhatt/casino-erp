@@ -78,6 +78,15 @@ class PitTableCustomerAssignmentServiceTests {
         verify(auditService).log(eq("ASSIGN_PIT_TABLE_CUSTOMER"), any(), any(), eq(actorId), any());
     }
 
+    @Test void exitedOpenSessionCannotJoin() {
+        var exited = session("OPEN", customerId, businessDate);
+        exited.setExitTime(java.time.LocalDateTime.now());
+        when(sessionRepository.findByIdForUpdate(sessionId)).thenReturn(Optional.of(exited));
+        assertThatThrownBy(() -> service.assign(tableId, new AssignPitTableCustomerRequest(customerId, sessionId)))
+                .hasMessageContaining("unexited");
+        verify(repository, never()).save(any());
+    }
+
     @Test void missingCustomerRejected() {
         when(customerRepository.findById(customerId)).thenReturn(Optional.empty());
         assertThatThrownBy(() -> service.assign(tableId, request))
@@ -90,14 +99,14 @@ class PitTableCustomerAssignmentServiceTests {
     }
 
     @Test void wrongCustomerSessionRejected() {
-        when(sessionRepository.findById(sessionId)).thenReturn(Optional.of(session("OPEN", UUID.randomUUID(), businessDate)));
+        when(sessionRepository.findByIdForUpdate(sessionId)).thenReturn(Optional.of(session("OPEN", UUID.randomUUID(), businessDate)));
         assertThatThrownBy(() -> service.assign(tableId, request)).hasMessageContaining("does not belong");
     }
 
     @Test void closedOrWrongDateSessionRejected() {
-        when(sessionRepository.findById(sessionId)).thenReturn(Optional.of(session("CLOSED", customerId, businessDate)));
-        assertThatThrownBy(() -> service.assign(tableId, request)).hasMessage("Customer session must be OPEN.");
-        when(sessionRepository.findById(sessionId)).thenReturn(Optional.of(session("OPEN", customerId, businessDate.minusDays(1))));
+        when(sessionRepository.findByIdForUpdate(sessionId)).thenReturn(Optional.of(session("CLOSED", customerId, businessDate)));
+        assertThatThrownBy(() -> service.assign(tableId, request)).hasMessage("Customer session must be OPEN and unexited.");
+        when(sessionRepository.findByIdForUpdate(sessionId)).thenReturn(Optional.of(session("OPEN", customerId, businessDate.minusDays(1))));
         assertThatThrownBy(() -> service.assign(tableId, request)).hasMessageContaining("current OPEN Business Date");
     }
 

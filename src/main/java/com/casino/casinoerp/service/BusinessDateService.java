@@ -148,6 +148,12 @@ public class BusinessDateService {
         }
     }
 
+    /** Locks the existing lifecycle boundary for an opening replay without requiring a new operation. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void lockLifecycleForPitOpening() {
+        businessDateRepository.acquireLifecycleLock();
+    }
+
     /** Serializes completed reconciliation replay with reopen without changing settlement eligibility. */
     @Transactional(propagation = Propagation.MANDATORY)
     public void lockLifecycleForReconciliation() {

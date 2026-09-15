@@ -25,7 +25,8 @@ public record PitTableModeResponse(
         boolean systemLocked,
         boolean currentBusinessDateOpen,
         LocalDate currentBusinessDate,
-        List<Integer> supportedDenominations) {
+        List<Integer> supportedDenominations,
+        BigDecimal operationVerifiedWins, BigDecimal operationVerifiedLosses) {
 
     public record Staff(UUID assignmentId, UUID userId, String username,
             String displayName, LocalDateTime startedAt) {

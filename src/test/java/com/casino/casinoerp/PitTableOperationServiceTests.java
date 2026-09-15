@@ -10,6 +10,7 @@ import com.casino.casinoerp.repository.ChipCustodyMovementRepository;
 import com.casino.casinoerp.repository.PhysicalPitTableRepository;
 import com.casino.casinoerp.repository.PitTableCustomerAssignmentRepository;
 import com.casino.casinoerp.repository.PitTableRepository;
+import com.casino.casinoerp.repository.PitReadRepository;
 import com.casino.casinoerp.repository.PitTableActiveStaffProjection;
 import com.casino.casinoerp.repository.PitTableStaffAssignmentRepository;
 import com.casino.casinoerp.repository.VerifiedGamingResultRepository;
@@ -62,10 +63,8 @@ class PitTableOperationServiceTests {
 
     @Mock PhysicalPitTableRepository physicalTables;
     @Mock PitTableRepository operations;
-    @Mock PitTableCustomerAssignmentRepository assignments;
-    @Mock VerifiedGamingResultRepository results;
+    @Mock PitReadRepository reads;
     @Mock PitTableStaffAssignmentRepository staffAssignments;
-    @Mock ChipCustodyMovementRepository custodyMovements;
     @Mock ChipCustodyService custody;
     @Mock BusinessDateService businessDates;
     @Mock SystemLockService systemLock;
@@ -79,8 +78,14 @@ class PitTableOperationServiceTests {
 
     @BeforeEach
     void setUp() {
-        service = new PitTableOperationService(physicalTables, operations, assignments,
-                results, staffAssignments, custodyMovements, custody, businessDates, systemLock, currentRole,
+        org.mockito.Mockito.lenient().when(reads.summarize(any())).thenAnswer(call -> {
+            List<UUID> ids = call.getArgument(0);
+            Map<UUID, PitReadRepository.Totals> values = new java.util.HashMap<>();
+            ids.forEach(id -> values.put(id, PitReadRepository.Totals.ZERO));
+            return values;
+        });
+        service = new PitTableOperationService(physicalTables, operations, reads,
+                staffAssignments, custody, businessDates, systemLock, currentRole,
                 permissions, authenticatedUser, audit, tableAccess);
     }
 
@@ -221,8 +226,7 @@ class PitTableOperationServiceTests {
     void overviewReportsPhysicalTableWithoutCurrentOperationAsNotOpened() {
         when(businessDates.getCurrentBusinessDate()).thenReturn(CURRENT_DATE);
         when(physicalTables.findAllByOrderByTableCodeAsc()).thenReturn(List.of(physical()));
-        when(operations.findByPhysicalTableIdAndBusinessDate(PHYSICAL_ID, CURRENT_DATE))
-                .thenReturn(Optional.empty());
+        when(operations.findByBusinessDate(CURRENT_DATE)).thenReturn(List.of());
 
         var response = service.overview().getFirst();
 
@@ -243,10 +247,7 @@ class PitTableOperationServiceTests {
         PitTable assigned = operation(OPERATION_ID, CURRENT_DATE, "OPEN");
         when(businessDates.getCurrentBusinessDate()).thenReturn(CURRENT_DATE);
         when(physicalTables.findAllByOrderByTableCodeAsc()).thenReturn(List.of(assignedPhysical, notOpened));
-        when(operations.findByPhysicalTableIdAndBusinessDate(PHYSICAL_ID, CURRENT_DATE))
-                .thenReturn(Optional.of(assigned));
-        when(operations.findByPhysicalTableIdAndBusinessDate(notOpened.getId(), CURRENT_DATE))
-                .thenReturn(Optional.empty());
+        when(operations.findByBusinessDate(CURRENT_DATE)).thenReturn(List.of(assigned));
         when(tableAccess.isDealer()).thenReturn(true);
         when(tableAccess.currentDealerOperationId()).thenReturn(Optional.of(OPERATION_ID));
 
@@ -271,19 +272,16 @@ class PitTableOperationServiceTests {
         PitTable current = operation(OPERATION_ID, CURRENT_DATE, "OPEN");
         when(businessDates.getCurrentBusinessDate()).thenReturn(CURRENT_DATE);
         when(physicalTables.findAllByOrderByTableCodeAsc()).thenReturn(List.of(physical()));
-        when(operations.findByPhysicalTableIdAndBusinessDate(PHYSICAL_ID, CURRENT_DATE))
-                .thenReturn(Optional.of(current));
-        when(assignments.findByPitTableIdAndStatusOrderByJoinedAtAsc(
-                org.mockito.ArgumentMatchers.eq(OPERATION_ID), any())).thenReturn(List.of());
-        when(custodyMovements.findByPitTableIdOrderByCreatedAtAsc(OPERATION_ID)).thenReturn(List.of());
-        when(results.findByPitTableId(OPERATION_ID)).thenReturn(List.of());
+        when(operations.findByBusinessDate(CURRENT_DATE)).thenReturn(List.of(current));
         when(staffAssignments.findActiveStaffForOverview(List.of(OPERATION_ID))).thenReturn(List.of());
 
         var response = service.overview().getFirst();
 
         assertEquals(OPERATION_ID, response.operationId());
         assertEquals(CURRENT_DATE, response.businessDate());
-        verify(operations).findByPhysicalTableIdAndBusinessDate(PHYSICAL_ID, CURRENT_DATE);
+        verify(operations).findByBusinessDate(CURRENT_DATE);
+        verify(operations, never()).findByPhysicalTableIdAndBusinessDate(any(), any());
+        verify(reads).summarize(List.of(OPERATION_ID));
         verify(operations, never()).findByPhysicalTableIdOrderByBusinessDateDesc(PHYSICAL_ID);
         verify(staffAssignments).findActiveStaffForOverview(List.of(OPERATION_ID));
     }
@@ -293,12 +291,7 @@ class PitTableOperationServiceTests {
         PitTable current = operation(OPERATION_ID, CURRENT_DATE, "OPEN");
         when(businessDates.getCurrentBusinessDate()).thenReturn(CURRENT_DATE);
         when(physicalTables.findAllByOrderByTableCodeAsc()).thenReturn(List.of(physical()));
-        when(operations.findByPhysicalTableIdAndBusinessDate(PHYSICAL_ID, CURRENT_DATE))
-                .thenReturn(Optional.of(current));
-        when(assignments.findByPitTableIdAndStatusOrderByJoinedAtAsc(
-                org.mockito.ArgumentMatchers.eq(OPERATION_ID), any())).thenReturn(List.of());
-        when(custodyMovements.findByPitTableIdOrderByCreatedAtAsc(OPERATION_ID)).thenReturn(List.of());
-        when(results.findByPitTableId(OPERATION_ID)).thenReturn(List.of());
+        when(operations.findByBusinessDate(CURRENT_DATE)).thenReturn(List.of(current));
         LocalDateTime dealerStarted = LocalDateTime.of(2026, 9, 2, 10, 0);
         LocalDateTime supervisorStarted = LocalDateTime.of(2026, 9, 2, 9, 30);
         PitTableActiveStaffProjection dealer =
@@ -373,13 +366,8 @@ class PitTableOperationServiceTests {
         secondOperation.setTableCode("BAC-002");
         when(businessDates.getCurrentBusinessDate()).thenReturn(CURRENT_DATE);
         when(physicalTables.findAllByOrderByTableCodeAsc()).thenReturn(List.of(physical(), secondPhysical));
-        when(operations.findByPhysicalTableIdAndBusinessDate(PHYSICAL_ID, CURRENT_DATE))
-                .thenReturn(Optional.of(operation(OPERATION_ID, CURRENT_DATE, "OPEN")));
-        when(operations.findByPhysicalTableIdAndBusinessDate(secondPhysicalId, CURRENT_DATE))
-                .thenReturn(Optional.of(secondOperation));
-        when(assignments.findByPitTableIdAndStatusOrderByJoinedAtAsc(any(), any())).thenReturn(List.of());
-        when(custodyMovements.findByPitTableIdOrderByCreatedAtAsc(any())).thenReturn(List.of());
-        when(results.findByPitTableId(any())).thenReturn(List.of());
+        when(operations.findByBusinessDate(CURRENT_DATE))
+                .thenReturn(List.of(operation(OPERATION_ID, CURRENT_DATE, "OPEN"), secondOperation));
         PitTableActiveStaffProjection firstDealer =
                 staffRow(OPERATION_ID, DEALER_ASSIGNMENT_ID, DEALER_USER_ID, "dealer-a", null,
                                 com.casino.casinoerp.entity.PitTableStaffAssignmentRole.DEALER,
@@ -402,15 +390,44 @@ class PitTableOperationServiceTests {
                 .findActiveStaffForOverview(List.of(OPERATION_ID, secondOperationId));
     }
 
+    @Test void completedOpeningReplaySurvivesDateRolloverWithoutNewCustody() {
+        allow(Role.SUPER_ADMIN);
+        PitTable completed=operation(OPERATION_ID,CURRENT_DATE,"CLOSED");
+        when(operations.findByOpeningIdempotencyKey("completed")).thenReturn(Optional.of(completed));
+        org.mockito.Mockito.lenient().when(businessDates.getCurrentBusinessDate()).thenReturn(CURRENT_DATE.plusDays(1));
+        service.open(PHYSICAL_ID,request("completed",null));
+        verify(businessDates).lockLifecycleForPitOpening();
+        verify(businessDates,never()).validateNewOperationalMutationAllowed();
+        verify(operations,never()).saveAndFlush(any());
+        verify(custody,never()).issueTableFloat(any(),any());
+        verify(custody).validateTableFloatIssueReplay(org.mockito.ArgumentMatchers.eq(OPERATION_ID),any());
+    }
+
+    @Test void staleOpeningDateRejectsBeforeAnyCustodyWrite() {
+        allow(Role.SUPER_ADMIN);
+        var stale = new OpenPitTableOperationRequest(Map.of(5000, 20L), null, "stale", CURRENT_DATE.minusDays(1));
+        assertThrows(ResourceConflictException.class, () -> service.open(PHYSICAL_ID, stale));
+        verify(operations, never()).saveAndFlush(any());
+        org.mockito.Mockito.verifyNoInteractions(custody);
+    }
+
+    @Test void overviewUsesBulkAggregateValuesIncludingResultsFromLeftPlayers() {
+        stubOverview(operation(OPERATION_ID, CURRENT_DATE, "OPEN"));
+        when(reads.summarize(List.of(OPERATION_ID))).thenReturn(Map.of(OPERATION_ID,
+                new PitReadRepository.Totals(1, new BigDecimal("2500"), new BigDecimal("500"), new BigDecimal("1000"))));
+        var value = service.overview().getFirst();
+        assertEquals(1, value.currentPlayers());
+        assertEquals(new BigDecimal("2500"), value.chipIn());
+        assertEquals(new BigDecimal("500"), value.verifiedWins());
+        assertEquals(new BigDecimal("500"), value.netPosition());
+        verify(reads).summarize(List.of(OPERATION_ID));
+        verify(operations, never()).findByPhysicalTableIdAndBusinessDate(any(), any());
+    }
+
     private void stubOverview(PitTable current) {
         when(businessDates.getCurrentBusinessDate()).thenReturn(CURRENT_DATE);
         when(physicalTables.findAllByOrderByTableCodeAsc()).thenReturn(List.of(physical()));
-        when(operations.findByPhysicalTableIdAndBusinessDate(PHYSICAL_ID, CURRENT_DATE))
-                .thenReturn(Optional.of(current));
-        when(assignments.findByPitTableIdAndStatusOrderByJoinedAtAsc(
-                org.mockito.ArgumentMatchers.eq(OPERATION_ID), any())).thenReturn(List.of());
-        when(custodyMovements.findByPitTableIdOrderByCreatedAtAsc(OPERATION_ID)).thenReturn(List.of());
-        when(results.findByPitTableId(OPERATION_ID)).thenReturn(List.of());
+        when(operations.findByBusinessDate(CURRENT_DATE)).thenReturn(List.of(current));
     }
 
     private PitTableActiveStaffProjection staffRow(
@@ -430,7 +447,7 @@ class PitTableOperationServiceTests {
     private void allow(Role role) {
         when(currentRole.getCurrentRole()).thenReturn(Optional.of(role));
         when(permissions.canOpenPitTableOperation(role)).thenReturn(true);
-        when(systemLock.isSystemLocked()).thenReturn(false);
+        org.mockito.Mockito.lenient().when(systemLock.isSystemLocked()).thenReturn(false);
         org.mockito.Mockito.lenient().when(businessDates.getCurrentBusinessDate()).thenReturn(CURRENT_DATE);
         User actor = new User();
         actor.setId(ACTOR_ID);
@@ -438,7 +455,7 @@ class PitTableOperationServiceTests {
     }
 
     private OpenPitTableOperationRequest request(String key, String remarks) {
-        return new OpenPitTableOperationRequest(Map.of(5000, 20L), remarks, key);
+        return new OpenPitTableOperationRequest(Map.of(5000, 20L), remarks, key, CURRENT_DATE);
     }
 
     private PhysicalPitTable physical() {

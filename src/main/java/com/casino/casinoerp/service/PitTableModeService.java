@@ -82,7 +82,9 @@ public class PitTableModeService {
                         tableCustody.totalValue()),
                 systemLock.isSystemLocked(), openBusinessDate.isPresent(),
                 openBusinessDate.map(BusinessDate::getBusinessDate).orElse(null),
-                ChipDenomination.supportedValues().stream().sorted().toList());
+                ChipDenomination.supportedValues().stream().sorted().toList(),
+                resultTotals.values().stream().map(PitTablePlayerResultSummaryProjection::getVerifiedWinTotal).reduce(BigDecimal.ZERO, BigDecimal::add),
+                resultTotals.values().stream().map(PitTablePlayerResultSummaryProjection::getVerifiedLossTotal).reduce(BigDecimal.ZERO, BigDecimal::add));
     }
 
     @Transactional(readOnly = true)
