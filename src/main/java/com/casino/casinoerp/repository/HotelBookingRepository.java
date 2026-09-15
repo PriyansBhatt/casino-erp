@@ -6,6 +6,9 @@ import java.time.LocalDate;
 import java.util.*;
 
 public interface HotelBookingRepository extends JpaRepository<HotelBooking, UUID> {
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @org.springframework.data.jpa.repository.Query("select h from HotelBooking h where h.id=:id")
+    Optional<HotelBooking> lockById(UUID id);
     Optional<HotelBooking> findByIdempotencyKey(String idempotencyKey);
-    List<HotelBooking> findByBusinessDateOrderByCreatedAtDesc(LocalDate businessDate);
+    List<HotelBooking> findByBusinessDateOrderByCreatedAtDescIdDesc(LocalDate businessDate);
 }

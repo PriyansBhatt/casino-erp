@@ -35,6 +35,7 @@ public class CustomerServiceRecordService {
     @Transactional
     public CustomerServiceRecord save(CustomerServiceRecord record) {
 
+        if(record.getId()!=null) throw new IllegalArgumentException("New service records must not supply an ID.");
         businessDateService.validateNewOperationalMutationAllowed();
         businessDateService.validateBusinessDateIsOpen();
         

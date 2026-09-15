@@ -6,5 +6,5 @@ import java.math.BigDecimal;
 
 public record UpdateHotelBookingStatusRequest(
         @NotNull HotelBookingStatus status,
-        @DecimalMin(value="0.0", inclusive=true) BigDecimal actualCost
+        @DecimalMin(value="0.0", inclusive=true) @Digits(integer=17,fraction=2) BigDecimal actualCost
 ) {}

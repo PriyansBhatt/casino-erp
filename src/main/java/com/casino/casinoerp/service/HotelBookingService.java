@@ -17,22 +17,28 @@ public class HotelBookingService {
     private final CustomerSessionRepository sessions; private final BusinessDateService dates;
     private final SystemLockService lock; private final AuthenticatedUserService authenticatedUsers;
     private final CurrentUserRoleService roles; private final RolePermissionService permissions;
+    private final org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate jdbc;
     private final UserRepository users; private final AuditLogService audit;
 
     public HotelBookingService(HotelBookingRepository bookings, CustomerRepository customers,
             CustomerSessionRepository sessions, BusinessDateService dates, SystemLockService lock,
             AuthenticatedUserService authenticatedUsers, CurrentUserRoleService roles,
-            RolePermissionService permissions, UserRepository users, AuditLogService audit) {
+            RolePermissionService permissions, UserRepository users, AuditLogService audit, org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate jdbc) {
         this.bookings=bookings; this.customers=customers; this.sessions=sessions; this.dates=dates;
         this.lock=lock; this.authenticatedUsers=authenticatedUsers; this.roles=roles;
-        this.permissions=permissions; this.users=users; this.audit=audit;
+        this.permissions=permissions; this.users=users; this.audit=audit; this.jdbc=jdbc;
     }
 
     @Transactional
     public HotelBookingResponse create(CreateHotelBookingRequest request) {
-        validateRole(); validateDates(request.checkInDate(), request.checkOutDate());
+        validateMutationRole(); validateDates(request.checkInDate(), request.checkOutDate());
+        jdbc.queryForList("SELECT pg_advisory_xact_lock(hashtextextended(:key,3302))",Map.of("key",request.idempotencyKey().trim()));
         HotelBooking replay = bookings.findByIdempotencyKey(request.idempotencyKey().trim()).orElse(null);
-        if (replay != null) { validateReplay(replay, request); return response(replay); }
+        if (replay != null) {
+            if (!Objects.equals(replay.getCreatedBy(), authenticatedUsers.getRequiredUser().getId()))
+                throw new ResourceConflictException("Idempotency key belongs to another recording user.");
+            validateReplay(replay, request); return response(replay);
+        }
         dates.validateNewOperationalMutationAllowed();
         dates.validateBusinessDateIsOpen(); LocalDate businessDate = dates.getCurrentBusinessDate(); validateUnlocked();
         Customer customer = customer(request.customerId());
@@ -56,7 +62,7 @@ public class HotelBookingService {
         validateRole(); LocalDate date = dates.getCurrentOpenBusinessDate()
                 .orElseThrow(() -> new IllegalStateException("Current business date is not opened."))
                 .getBusinessDate();
-        return responses(bookings.findByBusinessDateOrderByCreatedAtDesc(date));
+        return responses(bookings.findByBusinessDateOrderByCreatedAtDescIdDesc(date));
     }
 
     @Transactional(readOnly=true)
@@ -70,15 +76,16 @@ public class HotelBookingService {
 
     @Transactional
     public HotelBookingResponse updateStatus(UUID id, UpdateHotelBookingStatusRequest request) {
-        validateRole();
+        validateMutationRole();
         if (request.status() == HotelBookingStatus.BOOKED
                 || request.status() == HotelBookingStatus.CHECKED_IN) {
             dates.validateNewOperationalMutationAllowed();
         } else {
             dates.validateSettlementMutationAllowed();
         }
-        validateUnlocked(); HotelBooking value = required(id);
+        validateUnlocked(); HotelBooking value = locked(id);
         HotelBookingStatus next = request.status();
+        if(value.getStatus()==next && (request.actualCost()==null || value.getActualCost()!=null && value.getActualCost().compareTo(request.actualCost())==0))return response(value);
         boolean valid = (value.getStatus()==HotelBookingStatus.APPROVED && next==HotelBookingStatus.BOOKED)
                 || (value.getStatus()==HotelBookingStatus.BOOKED && next==HotelBookingStatus.CHECKED_IN)
                 || (value.getStatus()==HotelBookingStatus.CHECKED_IN && next==HotelBookingStatus.COMPLETED)
@@ -93,10 +100,11 @@ public class HotelBookingService {
     }
 
     private HotelBookingResponse decide(UUID id, boolean approved) {
-        validateRole();
+        validateMutationRole();
         if (approved) dates.validateNewOperationalMutationAllowed();
         else dates.validateSettlementMutationAllowed();
-        validateUnlocked(); HotelBooking value=required(id);
+        validateUnlocked(); HotelBooking value=locked(id);
+        if(value.getStatus()==(approved?HotelBookingStatus.APPROVED:HotelBookingStatus.REJECTED))return response(value);
         if (value.getStatus()!=HotelBookingStatus.REQUESTED) throw new ResourceConflictException("Only a requested booking can be approved or rejected.");
         User actor=authenticatedUsers.getRequiredUser(); LocalDateTime now=LocalDateTime.now();
         value.setStatus(approved?HotelBookingStatus.APPROVED:HotelBookingStatus.REJECTED);
@@ -104,14 +112,16 @@ public class HotelBookingService {
         HotelBooking saved=bookings.save(value); log(approved?"APPROVE_HOTEL_BOOKING":"REJECT_HOTEL_BOOKING", saved, actor, "status="+saved.getStatus());
         return response(saved);
     }
+    private HotelBooking locked(UUID id){return bookings.lockById(id).orElseThrow(()->new ResourceNotFoundException("Hotel booking not found."));}
+    private void validateMutationRole(){if(roles.getCurrentRole().orElse(null)!=com.casino.casinoerp.security.Role.SUPER_ADMIN)throw new org.springframework.security.access.AccessDeniedException("DIRECTOR is read-only. Hotel mutations require SUPER_ADMIN.");}
     private void validateRole(){ if(!roles.getCurrentRole().map(permissions::canManageHotelBooking).orElse(false)) throw new RuntimeException("Access denied. Hotel Booking is restricted to Director or Super Admin."); }
     private void validateUnlocked(){ if(lock.isSystemLocked()) throw new ResourceConflictException("System is locked. Hotel Booking changes are not allowed."); }
     private Customer customer(UUID id){ Customer value=customers.findById(id).orElseThrow(()->new ResourceNotFoundException("Customer not found.")); if(value.getStatus()!=CustomerStatus.ACTIVE) throw new IllegalArgumentException("Customer must be ACTIVE."); return value; }
-    private CustomerSession validateSession(UUID id, UUID customerId, LocalDate date){ if(id==null)return null; CustomerSession value=sessions.findById(id).orElseThrow(()->new ResourceNotFoundException("Customer session not found.")); if(!customerId.equals(value.getCustomerId()))throw new IllegalArgumentException("Customer session does not belong to the supplied customer."); if(!"OPEN".equalsIgnoreCase(value.getStatus())||!date.equals(value.getBusinessDate()))throw new IllegalArgumentException("Customer session must be OPEN for the current Business Date."); return value; }
+    private CustomerSession validateSession(UUID id, UUID customerId, LocalDate date){ if(id==null)return null; CustomerSession value=sessions.findById(id).orElseThrow(()->new ResourceNotFoundException("Customer session not found.")); if(!customerId.equals(value.getCustomerId()))throw new IllegalArgumentException("Customer session does not belong to the supplied customer."); if(!"OPEN".equalsIgnoreCase(value.getStatus())||value.getExitTime()!=null||!date.equals(value.getBusinessDate()))throw new IllegalArgumentException("Customer session must be OPEN for the current Business Date."); return value; }
     private void validateDates(LocalDate in, LocalDate out){ if(in!=null&&out!=null&&out.isBefore(in))throw new IllegalArgumentException("Check-out date cannot be before check-in date."); }
     private HotelBooking required(UUID id){ return bookings.findById(id).orElseThrow(()->new ResourceNotFoundException("Hotel booking not found.")); }
     private String normalize(String value){return value==null||value.isBlank()?null:value.trim();}
-    private void validateReplay(HotelBooking v, CreateHotelBookingRequest r){ if(!v.getCustomerId().equals(r.customerId())||!Objects.equals(v.getCustomerSessionId(),r.customerSessionId())||!v.getHotelName().equals(r.hotelName().trim())||!v.getRoomType().equals(r.roomType().trim())||!v.getCheckInDate().equals(r.checkInDate())||!v.getCheckOutDate().equals(r.checkOutDate())||!v.getNumberOfGuests().equals(r.numberOfGuests())||v.getEstimatedCost().compareTo(r.estimatedCost())!=0||v.getBillingType()!=r.billingType())throw new ResourceConflictException("Idempotency key has already been used for a different Hotel Booking.");}
+    private void validateReplay(HotelBooking v, CreateHotelBookingRequest r){ if(!v.getCustomerId().equals(r.customerId())||!Objects.equals(v.getCustomerSessionId(),r.customerSessionId())||!v.getHotelName().equals(r.hotelName().trim())||!v.getRoomType().equals(r.roomType().trim())||!v.getCheckInDate().equals(r.checkInDate())||!v.getCheckOutDate().equals(r.checkOutDate())||!v.getNumberOfGuests().equals(r.numberOfGuests())||v.getEstimatedCost().compareTo(r.estimatedCost())!=0||v.getBillingType()!=r.billingType()||!Objects.equals(v.getRemarks(),normalize(r.remarks())))throw new ResourceConflictException("Idempotency key has already been used for a different Hotel Booking.");}
     private void log(String action,HotelBooking value,User actor,String detail){audit.log(action,"HOTEL_BOOKING",value.getId(),actor.getId(),"Booking "+value.getBookingCode()+", businessDate="+value.getBusinessDate()+", "+detail);}
     private List<HotelBookingResponse> responses(List<HotelBooking> values){Set<UUID> customerIds=values.stream().map(HotelBooking::getCustomerId).collect(Collectors.toSet()); Set<UUID> sessionIds=values.stream().map(HotelBooking::getCustomerSessionId).filter(Objects::nonNull).collect(Collectors.toSet()); Set<UUID> actorIds=values.stream().flatMap(v->java.util.stream.Stream.of(v.getCreatedBy(),v.getApprovedBy())).filter(Objects::nonNull).collect(Collectors.toSet()); Map<UUID,Customer> customerMap=customers.findAllById(customerIds).stream().collect(Collectors.toMap(Customer::getId,Function.identity())); Map<UUID,CustomerSession> sessionMap=sessions.findAllById(sessionIds).stream().collect(Collectors.toMap(CustomerSession::getId,Function.identity())); Map<UUID,User> actorMap=users.findAllById(actorIds).stream().collect(Collectors.toMap(User::getId,Function.identity())); return values.stream().map(v->response(v,customerMap.get(v.getCustomerId()),sessionMap.get(v.getCustomerSessionId()),actorMap)).toList();}
     private HotelBookingResponse response(HotelBooking v){Customer c=customers.findById(v.getCustomerId()).orElse(null);CustomerSession s=v.getCustomerSessionId()==null?null:sessions.findById(v.getCustomerSessionId()).orElse(null);Set<UUID> ids=new HashSet<>();ids.add(v.getCreatedBy());if(v.getApprovedBy()!=null)ids.add(v.getApprovedBy());Map<UUID,User> actors=users.findAllById(ids).stream().collect(Collectors.toMap(User::getId,Function.identity()));return response(v,c,s,actors);}
