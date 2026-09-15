@@ -145,6 +145,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/customer-bonuses")
                         .hasAnyRole(Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())
 
+                        .requestMatchers(HttpMethod.GET, "/api/fnb/**")
+                        .hasAnyRole(Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())
+                        .requestMatchers("/api/fnb/**")
+                        .hasRole(Role.SUPER_ADMIN.name())
+
                         .requestMatchers(HttpMethod.GET, "/api/crm/**", "/api/hotel-bookings/**", "/api/hotel-bookings")
                         .hasAnyRole(Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())
 
