@@ -13,6 +13,13 @@ import java.util.*;
 public class MachineRepository {
     private final NamedParameterJdbcTemplate jdbc;
     public MachineRepository(NamedParameterJdbcTemplate jdbc) { this.jdbc=jdbc; }
+    public boolean hasActivePlay(UUID sessionId) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("""
+                select exists(select 1 from casino.slot_plays
+                    where customer_session_id = :sessionId and status = 'ACTIVE')
+                """, Map.of("sessionId", sessionId), Boolean.class));
+    }
+
     public record StoredMachine(UUID id, String type, String availability) {}
     public record StoredPlay(UUID id, UUID machineId, UUID customerId, UUID sessionId, LocalDate date,
             String status, UUID startedBy, UUID endedBy, String startKey, String endKey) {}

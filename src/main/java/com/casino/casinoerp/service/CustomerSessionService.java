@@ -8,6 +8,8 @@ import com.casino.casinoerp.entity.PitTableCustomerAssignmentStatus;
 import com.casino.casinoerp.exception.ResourceConflictException;
 import com.casino.casinoerp.exception.ResourceNotFoundException;
 import com.casino.casinoerp.repository.CustomerSessionRepository;
+import com.casino.casinoerp.repository.ChipCustodyInventoryRepository;
+import com.casino.casinoerp.repository.MachineRepository;
 import com.casino.casinoerp.repository.PitTableCustomerAssignmentRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,6 +33,8 @@ public class CustomerSessionService {
     private final CustomerService customerService;
     private final PitTableCustomerAssignmentRepository pitTableAssignmentRepository;
     private final SessionFinancialPositionService financialPositionService;
+    private final ChipCustodyInventoryRepository custody;
+    private final MachineRepository machines;
 
     public CustomerSessionService(
             CustomerSessionRepository repository,
@@ -41,7 +45,8 @@ public class CustomerSessionService {
             CurrentUserRoleService currentUserRoleService,
             CustomerService customerService,
             PitTableCustomerAssignmentRepository pitTableAssignmentRepository,
-            SessionFinancialPositionService financialPositionService) {
+            SessionFinancialPositionService financialPositionService,
+            ChipCustodyInventoryRepository custody, MachineRepository machines) {
 
         this.repository = repository;
         this.businessDateService = businessDateService;
@@ -52,6 +57,8 @@ public class CustomerSessionService {
         this.customerService = customerService;
         this.pitTableAssignmentRepository = pitTableAssignmentRepository;
         this.financialPositionService = financialPositionService;
+        this.custody = custody;
+        this.machines = machines;
     }
 
     public List<CustomerSession> getAllSessions() {
@@ -139,14 +146,25 @@ public class CustomerSessionService {
             throw new RuntimeException("Customer session is already CLOSED.");
         }
 
-        if (!"OPEN".equalsIgnoreCase(session.getStatus())) {
-            throw new RuntimeException("Only an OPEN customer session can be closed.");
+        if (!"OPEN".equalsIgnoreCase(session.getStatus()) || session.getExitTime() != null) {
+            throw new RuntimeException("Only an OPEN, unexited customer session can be closed.");
         }
 
         if (pitTableAssignmentRepository.findByCustomerSessionIdAndStatus(
                 sessionId, PitTableCustomerAssignmentStatus.ACTIVE).isPresent()) {
             throw new ResourceConflictException(
-                    "Customer must leave and settle the active Pit Table assignment before the session can be closed.");
+                    "Customer must leave and settle the active Pit Table assignment before completing Reception exit.");
+        }
+
+        // The lifecycle transaction lock above is also held by custody transfers and Slot start/end.
+        // Dependencies are session-specific, including historical OPEN sessions.
+        if (machines.hasActivePlay(sessionId)) {
+            throw new ResourceConflictException(
+                    "Customer has an active Slot play. End the machine play before completing Reception exit.");
+        }
+        if (custody.hasCustomerSessionChips(sessionId)) {
+            throw new ResourceConflictException(
+                    "Customer still holds physical casino chips. Resolve the chip custody through Chip Control/Cash-Out before completing Reception exit.");
         }
 
         BigDecimal chipPosition = financialPositionService.getPosition(sessionId).calculatedChipPosition();

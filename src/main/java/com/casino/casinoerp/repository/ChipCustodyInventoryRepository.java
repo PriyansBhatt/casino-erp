@@ -12,6 +12,14 @@ import java.util.Collection;
 import java.util.UUID;
 
 public interface ChipCustodyInventoryRepository extends JpaRepository<ChipCustodyInventory, java.util.UUID> {
+    @Query(value = """
+            select exists(select 1 from cashier.chip_custody_inventory
+                where location_key = concat('CUSTOMER_SESSION:', cast(:sessionId as text))
+                  and location_type = 'CUSTOMER_SESSION' and reference_id = :sessionId
+                  and quantity > 0)
+            """, nativeQuery = true)
+    boolean hasCustomerSessionChips(@Param("sessionId") UUID sessionId);
+
     List<ChipCustodyInventory> findByLocationKeyOrderByDenomination(String locationKey);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

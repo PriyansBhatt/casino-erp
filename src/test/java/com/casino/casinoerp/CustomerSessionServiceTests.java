@@ -51,6 +51,10 @@ class CustomerSessionServiceTests {
             mock(PitTableCustomerAssignmentRepository.class);
     private final SessionFinancialPositionService financialPositionService =
             mock(SessionFinancialPositionService.class);
+    private final com.casino.casinoerp.repository.ChipCustodyInventoryRepository custody =
+            mock(com.casino.casinoerp.repository.ChipCustodyInventoryRepository.class);
+    private final com.casino.casinoerp.repository.MachineRepository machines =
+            mock(com.casino.casinoerp.repository.MachineRepository.class);
     private final CustomerSessionService service = new CustomerSessionService(
             repository,
             businessDateService,
@@ -60,7 +64,7 @@ class CustomerSessionServiceTests {
             currentUserRoleService,
             customerService,
             pitTableAssignmentRepository,
-            financialPositionService
+            financialPositionService, custody, machines
     );
 
     private final UUID customerId = UUID.randomUUID();
@@ -313,6 +317,61 @@ class CustomerSessionServiceTests {
         customer.setId(customerId);
         customer.setStatus(CustomerStatus.ACTIVE);
         return customer;
+    }
+
+    @Test
+    void residualPhysicalCustodyBlocksExitUntilResolved() {
+        CustomerSession session = openSessionEntity(UUID.randomUUID());
+        stubClosable(session);
+        when(custody.hasCustomerSessionChips(session.getId())).thenReturn(true, false);
+        assertThatThrownBy(() -> service.closeSession(session.getId()))
+                .isInstanceOf(ResourceConflictException.class).hasMessageContaining("physical casino chips");
+        verify(repository, never()).save(any());
+        assertThat(service.closeSession(session.getId()).status()).isEqualTo("CLOSED");
+    }
+
+    @Test
+    void activeSlotBlocksHistoricalSessionUntilEndPlay() {
+        CustomerSession session = openSessionEntity(UUID.randomUUID());
+        session.setBusinessDate(businessDate.minusDays(1));
+        stubClosable(session);
+        when(machines.hasActivePlay(session.getId())).thenReturn(true, false);
+        assertThatThrownBy(() -> service.closeSession(session.getId()))
+                .isInstanceOf(ResourceConflictException.class).hasMessageContaining("End the machine play");
+        verify(repository, never()).save(any());
+        assertThat(service.closeSession(session.getId()).status()).isEqualTo("CLOSED");
+    }
+
+    @Test
+    void exitedOpenAndInvalidStatusCannotExitAgain() {
+        CustomerSession session = openSessionEntity(UUID.randomUUID());
+        when(repository.findByIdForUpdate(session.getId())).thenReturn(Optional.of(session));
+        session.setExitTime(java.time.LocalDateTime.now());
+        assertThatThrownBy(() -> service.closeSession(session.getId())).hasMessageContaining("unexited");
+        session.setExitTime(null);
+        session.setStatus("UNKNOWN");
+        assertThatThrownBy(() -> service.closeSession(session.getId())).hasMessageContaining("OPEN");
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void dependencyChecksFollowLifecycleAndSessionLock() {
+        CustomerSession session = openSessionEntity(UUID.randomUUID());
+        stubClosable(session);
+        service.closeSession(session.getId());
+        var order = org.mockito.Mockito.inOrder(businessDateService, repository, machines, custody);
+        order.verify(businessDateService).validateSettlementMutationAllowed();
+        order.verify(repository).findByIdForUpdate(session.getId());
+        order.verify(machines).hasActivePlay(session.getId());
+        order.verify(custody).hasCustomerSessionChips(session.getId());
+        order.verify(repository).save(session);
+    }
+
+    private void stubClosable(CustomerSession session) {
+        when(repository.findByIdForUpdate(session.getId())).thenReturn(Optional.of(session));
+        when(financialPositionService.getPosition(session.getId())).thenReturn(
+                new SessionFinancialPositionResponse(session.getCustomerId(), session.getId(), session.getBusinessDate(),
+                        BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO));
     }
 
     private CustomerSession openSessionEntity(UUID sessionId) {
