@@ -26,9 +26,21 @@ public class SecurityConfig {
                 .cors(cors -> {})
 
                 .csrf(csrf -> csrf.disable())
+                .sessionManagement(session -> session.sessionCreationPolicy(org.springframework.security.config.http.SessionCreationPolicy.STATELESS))
 
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/login", "/api/health").permitAll()
+
+                        // Legacy management projections must not inherit the authenticated catch-all.
+                        .requestMatchers(HttpMethod.GET, "/api/dashboard/**", "/api/daily-report/**",
+                                "/api/business-date-summary/**", "/api/casino-dashboard/**")
+                        .hasAnyRole(Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())
+                        // Legacy reception visit records follow the existing session-read matrix.
+                        .requestMatchers(HttpMethod.GET, "/api/checkins", "/api/checkins/**")
+                        .hasAnyRole(Role.RECEPTIONIST.name(), Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())
+                        // Same readership as the existing /api/alerts family.
+                        .requestMatchers(HttpMethod.GET, "/api/alert-dashboard/**", "/api/high-value-alerts/**", "/api/suspicious-alerts/**")
+                        .hasAnyRole(Role.DIRECTOR.name(), Role.SUPER_ADMIN.name(), Role.SURVEILLANCE_OFFICER.name())
 
                         .requestMatchers(HttpMethod.GET, "/api/business-status/current")
                         .authenticated()

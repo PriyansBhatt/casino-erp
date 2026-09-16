@@ -27,10 +27,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
     private final ObjectMapper objectMapper;
+    private final org.springframework.beans.factory.ObjectProvider<com.casino.casinoerp.repository.UserRepository> users;
 
-    public JwtAuthenticationFilter(JwtService jwtService, ObjectMapper objectMapper) {
+    public JwtAuthenticationFilter(JwtService jwtService, ObjectMapper objectMapper, org.springframework.beans.factory.ObjectProvider<com.casino.casinoerp.repository.UserRepository> users) {
         this.jwtService = jwtService;
         this.objectMapper = objectMapper;
+        this.users = users;
     }
 
     @Override
@@ -53,19 +55,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String username = jwtService.extractUsername(token);
             Optional<Role> role = Role.fromValue(jwtService.extractRole(token));
 
-            if (username != null
-                    && role.isPresent()
-                    && SecurityContextHolder.getContext().getAuthentication() == null) {
-                UsernamePasswordAuthenticationToken authentication =
-                        new UsernamePasswordAuthenticationToken(
-                                username,
-                                null,
-                                List.of(new SimpleGrantedAuthority(role.get().authority()))
-                        );
-
-                SecurityContextHolder.getContext().setAuthentication(authentication);
-            }
-        } catch (JwtException | IllegalArgumentException ex) {
+            if(username==null || username.isBlank() || role.isEmpty())throw new IllegalArgumentException("Invalid token claims");
+            var user=users.getObject().findByUsername(username);
+            var persistedRole=com.casino.casinoerp.service.AuthenticatedUserService.requireActiveRole(user);
+            if(persistedRole!=role.get())throw new org.springframework.security.authentication.BadCredentialsException("Role changed; sign in again.");
+            var authentication=new UsernamePasswordAuthenticationToken(
+                new com.casino.casinoerp.service.AuthenticatedUserService.Account(user),null,
+                List.of(new SimpleGrantedAuthority(persistedRole.authority())));
+            SecurityContextHolder.getContext().setAuthentication(authentication);
+        } catch (JwtException | IllegalArgumentException | org.springframework.security.core.AuthenticationException ex) {
             SecurityContextHolder.clearContext();
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
             response.setContentType(MediaType.APPLICATION_JSON_VALUE);

@@ -64,6 +64,8 @@ class CustomerKycControllerSecurityTests {
     @MockitoBean
     private CustomerKycService customerKycService;
 
+    @MockitoBean
+    private com.casino.casinoerp.repository.UserRepository users;
     @Autowired
     private JwtService jwtService;
 
@@ -94,6 +96,8 @@ class CustomerKycControllerSecurityTests {
     @Test
     void realSuperAdminJwtCanAccessUuidShapedBasicKycPath() throws Exception {
         when(customerKycService.getReceptionKyc(CUSTOMER_ID)).thenReturn(receptionResponse());
+        var account=new com.casino.casinoerp.entity.User();account.setUsername("superadmin");account.setStatus("ACTIVE");account.setRole("SUPER_ADMIN");
+        when(users.findByUsername("superadmin")).thenReturn(account);
         String token = jwtService.generateToken("superadmin", "SUPER_ADMIN");
 
         mockMvc.perform(get("/api/customers/{customerId}/kyc", CUSTOMER_ID)

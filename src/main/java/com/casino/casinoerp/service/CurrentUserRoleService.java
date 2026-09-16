@@ -48,7 +48,8 @@ public class CurrentUserRoleService {
             return null;
         }
 
-        User user = userRepository.findByUsername(authentication.getName());
+        User user = authentication.getPrincipal() instanceof AuthenticatedUserService.Account account
+                ? account.user() : userRepository.findByUsername(authentication.getName());
 
         if (user == null) {
             return null;

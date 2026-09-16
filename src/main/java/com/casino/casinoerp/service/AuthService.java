@@ -31,11 +31,12 @@ public class AuthService {
 
         User user = userRepository.findByUsername(request.getUsername());
 
-        if (user == null) {
-            return new LoginResponse("Invalid username", null, null, null, null);        }
-
-        if (!passwordEncoder.matches(request.getPassword(), user.getPasswordHash())) {
-            return new LoginResponse("Invalid password", null, null, null, null);        }
+        if (user == null || !passwordEncoder.matches(request.getPassword(), user.getPasswordHash()))
+            throw new org.springframework.security.authentication.BadCredentialsException("Invalid credentials.");
+        try { AuthenticatedUserService.requireActiveRole(user); }
+        catch(org.springframework.security.core.AuthenticationException ex) {
+            throw new org.springframework.security.authentication.BadCredentialsException("Invalid credentials.");
+        }
 
         currentUserRoleService.setCurrentUserRole(user.getRole());
 

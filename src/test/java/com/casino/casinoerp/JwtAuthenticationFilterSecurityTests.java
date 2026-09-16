@@ -43,6 +43,15 @@ class JwtAuthenticationFilterSecurityTests {
     private MockMvc mockMvc;
 
     @MockitoBean
+    private com.casino.casinoerp.repository.UserRepository users;
+
+    @org.junit.jupiter.api.BeforeEach void activeAccounts() {
+        for(String role: java.util.List.of("SUPER_ADMIN","CASHIER")) {
+            var value=new com.casino.casinoerp.entity.User();value.setUsername(role.equals("SUPER_ADMIN")?"superadmin":"cashier");value.setRole(role);value.setStatus("ACTIVE");
+            when(users.findByUsername(value.getUsername())).thenReturn(value);
+        }
+    }
+    @MockitoBean
     private JwtService jwtService;
 
     @MockitoBean
@@ -102,14 +111,14 @@ class JwtAuthenticationFilterSecurityTests {
     @Test
     void missingTokenDoesNotBlockPublicLoginEndpoint() throws Exception {
         when(authService.login(org.mockito.ArgumentMatchers.any()))
-                .thenReturn(new LoginResponse("Invalid username", null, null, null, null));
+                .thenThrow(new org.springframework.security.authentication.BadCredentialsException("Invalid credentials."));
 
         mockMvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"username":"unknown","password":"password"}
                                 """))
-                .andExpect(status().isOk())
+                .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.success").value(false));
     }
 
