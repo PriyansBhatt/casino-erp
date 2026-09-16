@@ -196,7 +196,9 @@ public class ChipBuyInService {
     }
 
     private void validateIdempotentReplay(ChipBuyIn existing, CreateChipBuyInRequest request) {
-        if (!request.customerId().equals(existing.getCustomerId())
+        if (!java.util.Objects.equals(existing.getCreatedBy(), authenticatedUserService.getRequiredUser().getId())
+                || !java.util.Objects.equals(existing.getRemarks(), normalizeOptional(request.remarks()))
+                || !request.customerId().equals(existing.getCustomerId())
                 || !request.customerSessionId().equals(existing.getCustomerSessionId())
                 || request.amountReceived().compareTo(existing.getAmountReceived()) != 0
                 || request.totalChipValueIssued().compareTo(existing.getTotalChipValueIssued()) != 0

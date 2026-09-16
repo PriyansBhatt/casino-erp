@@ -287,11 +287,20 @@ class ChipCashOutServiceTests {
         value.setCustomerId(customerId); value.setCustomerSessionId(sessionId); value.setCashPaid(new BigDecimal("100"));
         value.setTotalChipValueReturned(new BigDecimal("100")); value.setPaymentMode("CASH");
         value.setDenominations(Map.of(500, 1L));
-        value.setBusinessDate(businessDate); value.setCreatedBy(actorId); return value;
+        value.setBusinessDate(businessDate); value.setCreatedBy(actorId); value.setRemarks("Test"); return value;
     }
     private ChipCustodyMovement custodyMovement(Map<Integer, Long> denominations) {
         ChipCustodyMovement movement = new ChipCustodyMovement();
         movement.setDenominations(new java.util.LinkedHashMap<>(denominations));
         return movement;
     }
+    @Test void cashOutReplayRejectsDifferentOwnerAndChangedRemarks() {
+        var saved = existing(); when(repository.findByIdempotencyKey("same")).thenReturn(Optional.of(saved));
+        saved.setCreatedBy(UUID.randomUUID());
+        assertThatThrownBy(() -> service.create(request("100", "100", PaymentMode.CASH, null, "same"))).hasMessageContaining("different cash-out");
+        saved.setCreatedBy(actorId); saved.setRemarks("changed");
+        assertThatThrownBy(() -> service.create(request("100", "100", PaymentMode.CASH, null, "same"))).hasMessageContaining("different cash-out");
+        verify(repository, never()).save(any());
+    }
+
 }

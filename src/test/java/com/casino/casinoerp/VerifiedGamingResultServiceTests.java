@@ -268,4 +268,14 @@ class VerifiedGamingResultServiceTests {
         result.setCreatedAt(java.time.LocalDateTime.now()); result.setCreatedBy(actorId);
         return result;
     }
+    @Test void completedResultSurvivesDealerAssignmentEndButNotOwnerChange() {
+        var saved = existingResult(); when(repository.findByIdempotencyKey("test-key-2500")).thenReturn(Optional.of(saved));
+        doThrow(new org.springframework.security.access.AccessDeniedException("assignment ended")).when(tableAccess).requireOperationalAccess(tableId);
+        when(systemLockService.isSystemLocked()).thenReturn(true);
+        assertThat(service.create(request(new BigDecimal("2500"))).id()).isEqualTo(saved.getId());
+        saved.setCreatedBy(UUID.randomUUID());
+        assertThatThrownBy(() -> service.create(request(new BigDecimal("2500")))).hasMessageContaining("different verified gaming result");
+        verify(tableAccess, never()).requireOperationalAccess(any()); verify(repository, never()).save(any());
+    }
+
 }

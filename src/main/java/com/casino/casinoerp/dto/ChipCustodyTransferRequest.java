@@ -10,6 +10,10 @@ public record ChipCustodyTransferRequest(
         @NotEmpty(message = "Denominations are required") @com.fasterxml.jackson.databind.annotation.JsonDeserialize(contentUsing = StrictBuyInQuantityDeserializer.class)
         Map<Integer, Long> denominations,
         @NotBlank(message = "Idempotency key is required")
-        @Size(max = 100, message = "Idempotency key must not exceed 100 characters") String idempotencyKey
+        @Size(max = 100, message = "Idempotency key must not exceed 100 characters") String idempotencyKey,
+        java.time.LocalDate expectedBusinessDate
 ) {
+    public ChipCustodyTransferRequest(Map<Integer, Long> denominations, String idempotencyKey) {
+        this(denominations, idempotencyKey, null);
+    }
 }

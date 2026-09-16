@@ -214,6 +214,7 @@ class CashierReconciliationServiceTests {
 
         assertThat(result.lifecycleStatus()).isEqualTo("REOPENED");
         assertThat(submitted.getReopenReason()).isEqualTo("Correction required");
+        assertThat(submitted.getReopenedAt().getNano() % 1000).isZero();
         assertThatNoException().isThrownBy(() -> service.validatePostingAllowed(actorId, date));
         verify(audit).log(eq("RECONCILIATION_REOPENED"), anyString(), eq(submitted.getId()), eq(director.getId()), contains("Correction required"));
     }
@@ -234,7 +235,9 @@ class CashierReconciliationServiceTests {
         reopened.setIdempotencyKey("old-key");
         when(repository.findByCashierUserIdAndBusinessDate(actorId, date)).thenReturn(Optional.of(reopened));
         doReturn(reopened).when(repository).save(same(reopened));
-        var result = service.submit(request("100", Map.of(50, 2), "new-key"));
+        reopened.setReopenedAt(date.atTime(12, 0));
+        request("100", Map.of(50, 2), "new-key"); // Establish Opening Cash fixture.
+        var result = service.submit(new CashierReconciliationRequest(null, Map.of(50, 2), null, "new-key", date, reopened.getReopenedAt()));
 
         assertThat(result.id()).isEqualTo(existingId);
         assertThat(result.lifecycleStatus()).isEqualTo("SUBMITTED");
@@ -293,7 +296,7 @@ class CashierReconciliationServiceTests {
         var reopened = persisted("REOPENED");
         when(repository.findByIdempotencyKey("old")).thenReturn(Optional.of(reopened));
         assertThatThrownBy(() -> service.submit(request("100", Map.of(100, 1), "old")))
-                .hasMessageContaining("new operation key");
+                .hasMessageContaining("superseded");
         assertThat(reopened.getLifecycleStatus()).isEqualTo("REOPENED");
         verify(repository, never()).save(any());
     }
@@ -350,11 +353,64 @@ class CashierReconciliationServiceTests {
     }
     private ChipBuyIn buyIn(String mode, String amount) { ChipBuyIn value = new ChipBuyIn(); value.setPaymentMode(mode); value.setAmountReceived(new BigDecimal(amount)); return value; }
     private ChipCashOut cashOut(String mode, String amount) { ChipCashOut value = new ChipCashOut(); value.setPaymentMode(mode); value.setCashPaid(new BigDecimal(amount)); return value; }
+    @Test void reopenedPreconditionSurvivesJsonMicrosecondRoundTrip() throws Exception {
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules()
+                .disable(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        var reopened = persisted("REOPENED");
+        reopened.setReopenedAt(date.atTime(12, 34, 56, 123456000));
+        when(repository.findByCashierUserIdAndBusinessDate(actorId, date)).thenReturn(Optional.of(reopened));
+        request("100", Map.of(100, 1), "new-key");
+        var original = new CashierReconciliationRequest(null, Map.of(100, 1), null, "new-key", date, reopened.getReopenedAt());
+        String json = mapper.writeValueAsString(original);
+        assertThat(json).contains("T12:34:56.123456");
+        var restored = mapper.readValue(json, CashierReconciliationRequest.class);
+        assertThat(restored.expectedReopenedAt()).isEqualTo(reopened.getReopenedAt());
+        assertThat(service.submit(restored).lifecycleStatus()).isEqualTo("SUBMITTED");
+    }
+
+    @Test void supersededKeyCannotReplaceNewerReopenedSubmission() {
+        var newer = persisted("REOPENED"); newer.setIdempotencyKey("B");
+        newer.setReopenedAt(date.atTime(16, 0));
+        when(repository.findByCashierUserIdAndBusinessDate(actorId, date)).thenReturn(Optional.of(newer));
+        for (var request : List.of(
+                new CashierReconciliationRequest(null, Map.of(100, 1), null, "A", date, null),
+                new CashierReconciliationRequest(null, Map.of(100, 1), null, "A", date, date.atTime(12, 0)))) {
+            assertThatThrownBy(() -> service.submit(request)).hasMessageContaining("superseded");
+        }
+        assertThat(newer.getIdempotencyKey()).isEqualTo("B");
+        assertThat(newer.getLifecycleStatus()).isEqualTo("REOPENED");
+        assertThat(newer.getDenominations()).containsExactlyEntriesOf(Map.of(100, 1));
+        verify(repository, never()).save(any());
+    }
+
+    @Test void currentBReplaySurvivesRolloverButRejectsOtherActorAndChangedCount() {
+        var current = persisted("SUBMITTED"); current.setIdempotencyKey("B");
+        when(repository.findByIdempotencyKey("B")).thenReturn(Optional.of(current));
+        when(businessDates.getCurrentOpenBusinessDate()).thenReturn(Optional.empty());
+        var original = new CashierReconciliationRequest(null, Map.of(100, 1), null, "B", date, date.atTime(12, 0));
+        assertThat(service.submit(original).id()).isEqualTo(current.getId());
+        assertThatThrownBy(() -> service.submit(new CashierReconciliationRequest(null, Map.of(50, 2), null, "B", date)))
+                .hasMessageContaining("different reconciliation");
+        User other = new User(); other.setId(UUID.randomUUID()); when(authenticatedUsers.getRequiredUser()).thenReturn(other);
+        assertThatThrownBy(() -> service.submit(original)).hasMessageContaining("different reconciliation");
+        verify(repository, never()).save(any());
+    }
+
     private CashierReconciliation persisted(String lifecycle) {
         CashierReconciliation value = new CashierReconciliation(); value.setId(UUID.randomUUID()); value.setCashierUserId(actorId);
         value.setBusinessDate(date); value.setOpeningCash(new BigDecimal("100")); value.setExpectedClosingCash(new BigDecimal("100"));
         value.setActualClosingCash(new BigDecimal("100")); value.setVariance(BigDecimal.ZERO); value.setStatus("BALANCED");
         value.setLifecycleStatus(lifecycle); value.setDenominations(new LinkedHashMap<>(Map.of(100, 1))); value.setIdempotencyKey("key");
         return value;
+    }    @Test void obsoleteAWhileBSubmittedCannotChangeB() {
+        var current = persisted("SUBMITTED"); current.setIdempotencyKey("B");
+        when(repository.findByCashierUserIdAndBusinessDate(actorId, date)).thenReturn(Optional.of(current));
+        assertThatThrownBy(() -> service.submit(new CashierReconciliationRequest(null, Map.of(50, 4), null, "A", date)))
+                .hasMessageContaining("superseded");
+        assertThat(current.getIdempotencyKey()).isEqualTo("B");
+        assertThat(current.getLifecycleStatus()).isEqualTo("SUBMITTED");
+        assertThat(current.getDenominations()).containsExactlyEntriesOf(Map.of(100, 1));
+        verify(repository, never()).save(any());
     }
+
 }

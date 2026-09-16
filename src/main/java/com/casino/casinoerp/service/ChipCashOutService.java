@@ -189,7 +189,9 @@ public class ChipCashOutService {
     }
 
     private void validateIdempotentReplay(ChipCashOut existing, CreateChipCashOutRequest request) {
-        if (!request.customerId().equals(existing.getCustomerId())
+        if (!java.util.Objects.equals(existing.getCreatedBy(), authenticatedUserService.getRequiredUser().getId())
+                || !java.util.Objects.equals(existing.getRemarks(), normalizeOptional(request.remarks()))
+                || !request.customerId().equals(existing.getCustomerId())
                 || !request.customerSessionId().equals(existing.getCustomerSessionId())
                 || request.cashPaid().compareTo(existing.getCashPaid()) != 0
                 || request.totalChipValueReturned().compareTo(existing.getTotalChipValueReturned()) != 0

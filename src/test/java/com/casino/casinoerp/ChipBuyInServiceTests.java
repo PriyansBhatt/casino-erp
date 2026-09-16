@@ -320,7 +320,7 @@ class ChipBuyInServiceTests {
         buyIn.setCustomerId(customerId); buyIn.setCustomerSessionId(sessionId);
         buyIn.setAmountReceived(new BigDecimal("10000")); buyIn.setTotalChipValueIssued(new BigDecimal("10000"));
         buyIn.setPaymentMode("CASH"); buyIn.setBusinessDate(businessDate); buyIn.setCreatedBy(actorId);
-        buyIn.setDenominations(Map.of(1000, 10L));
+        buyIn.setDenominations(Map.of(1000, 10L)); buyIn.setRemarks("Test");
         return buyIn;
     }
 
@@ -329,4 +329,52 @@ class ChipBuyInServiceTests {
         movement.setDenominations(new java.util.LinkedHashMap<>(denominations));
         return movement;
     }
+    @Test void replayRejectsDifferentActorAndChangedRemarksBeforeLifecycleReads() {
+        var saved = existingBuyIn(); when(buyInRepository.findByIdempotencyKey("idem-1")).thenReturn(Optional.of(saved));
+        saved.setCreatedBy(UUID.randomUUID());
+        assertThatThrownBy(() -> service.create(request(PaymentMode.CASH, null))).hasMessageContaining("different buy-in");
+        saved.setCreatedBy(actorId); saved.setRemarks("Other remarks");
+        assertThatThrownBy(() -> service.create(request(PaymentMode.CASH, null))).hasMessageContaining("different buy-in");
+        verify(buyInRepository, never()).save(any());
+        verify(businessDateService, never()).validateNewOperationalMutationAllowed();
+    }
+
+    @Test void completedBuyInReplaySurvivesRolloverAndLock() {
+        var saved = existingBuyIn(); when(buyInRepository.findByIdempotencyKey("idem-1")).thenReturn(Optional.of(saved));
+        when(systemLockService.isSystemLocked()).thenReturn(true);
+        when(businessDateService.getCurrentBusinessDate()).thenReturn(businessDate.plusDays(1));
+        assertThat(service.create(request(PaymentMode.CASH, null)).id()).isEqualTo(saved.getId());
+        verify(buyInRepository, never()).save(any());
+    }
+    @Test void concurrentSameKeyCreatesAtMostOneLogicalBuyIn() throws Exception {
+        var saved = new java.util.concurrent.atomic.AtomicReference<ChipBuyIn>();
+        var entrants = new java.util.concurrent.CountDownLatch(2);
+        var lookups = new java.util.concurrent.atomic.AtomicInteger();
+        var rowLock = new java.util.concurrent.locks.ReentrantLock();
+        when(buyInRepository.findByIdempotencyKey("idem-1")).thenAnswer(invocation -> {
+            if (lookups.incrementAndGet() <= 2) {
+                entrants.countDown(); if (!entrants.await(5, java.util.concurrent.TimeUnit.SECONDS)) throw new AssertionError("Both requests must overlap");
+                return Optional.empty();
+            }
+            return Optional.ofNullable(saved.get());
+        });
+        when(sessionRepository.findByIdForUpdate(sessionId)).thenAnswer(invocation -> {
+            rowLock.lock(); return Optional.of(session("OPEN", customerId, businessDate));
+        });
+        when(buyInRepository.save(any())).thenAnswer(invocation -> {
+            ChipBuyIn value = invocation.getArgument(0); value.setId(UUID.randomUUID()); saved.set(value); return value;
+        });
+        var executor = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            java.util.concurrent.Callable<UUID> submit = () -> {
+                try { return service.create(request(PaymentMode.CASH, null)).id(); }
+                finally { if (rowLock.isHeldByCurrentThread()) rowLock.unlock(); }
+            };
+            var a = executor.submit(submit); var b = executor.submit(submit);
+            assertThat(a.get(5, java.util.concurrent.TimeUnit.SECONDS)).isEqualTo(b.get(5, java.util.concurrent.TimeUnit.SECONDS));
+            verify(buyInRepository, times(1)).save(any());
+            verify(walletTransactionService, times(1)).save(any());
+        } finally { executor.shutdownNow(); }
+    }
+
 }

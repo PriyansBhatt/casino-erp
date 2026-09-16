@@ -61,16 +61,24 @@ public class ChipCustodyService {
         if (!permissions.canInitializeChipCustody(currentRoles.getCurrentRole().orElse(null))) {
             throw new RuntimeException("Access denied. Only Super Admin can initialize cage chip inventory.");
         }
-        businessDates.validateNewOperationalMutationAllowed();
-        businessDates.validateBusinessDateIsOpen();
-        if (systemLock.isSystemLocked()) throw new ResourceConflictException("System is locked. Chip custody movements are not allowed.");
         String key = request.idempotencyKey().trim();
         ChipCustodyMovement replay = movements.findByIdempotencyKey(key).orElse(null);
         if (replay != null) {
+            if (request.expectedBusinessDate() != null
+                    && !request.expectedBusinessDate().equals(replay.getBusinessDate())) {
+                throw new ResourceConflictException("Idempotency key has already been used for a different Business Date.");
+            }
             Map<Integer, Long> denominations = normalize(request.denominations());
             validateReplay(replay, ChipCustodyMovementType.CAGE_OPENING, null, null,
                     denominations, total(denominations));
             return response(replay);
+        }
+        businessDates.validateNewOperationalMutationAllowed();
+        businessDates.validateBusinessDateIsOpen();
+        if (systemLock.isSystemLocked()) throw new ResourceConflictException("System is locked. Chip custody movements are not allowed.");
+        if (request.expectedBusinessDate() != null
+                && !request.expectedBusinessDate().equals(businessDates.getCurrentBusinessDate())) {
+            throw new ResourceConflictException("Business Date changed. Refresh before initializing cage inventory.");
         }
         ChipDenomination.supportedValues().stream().sorted().forEach(denomination ->
                 inventory.findForUpdate(CAGE_KEY, denomination)
@@ -192,6 +200,8 @@ public class ChipCustodyService {
     @Transactional
     public ChipCustodyMovementResponse issueTableFloat(UUID tableId, ChipCustodyTransferRequest request) {
         validatePitCustodyRole();
+        ChipCustodyMovement completed = completedTransfer(request, ChipCustodyMovementType.TABLE_FLOAT_ISSUE, null, tableId);
+        if (completed != null) return response(completed);
         businessDates.validateNewOperationalMutationAllowed();
         LocalDate date = currentWritableBusinessDate();
         PitTable table = validateOpenTableForUpdate(tableId, date);
@@ -226,6 +236,8 @@ public class ChipCustodyService {
     @Transactional
     public ChipCustodyMovementResponse returnTableFloat(UUID tableId, ChipCustodyTransferRequest request) {
         validatePitCustodyRole();
+        ChipCustodyMovement completed = completedTransfer(request, ChipCustodyMovementType.TABLE_FLOAT_RETURN, tableId, null);
+        if (completed != null) return response(completed);
         businessDates.validateSettlementMutationAllowed();
         LocalDate date = currentWritableBusinessDate();
         validateOpenTableForUpdate(tableId, date);
@@ -239,6 +251,8 @@ public class ChipCustodyService {
     public ChipCustodyMovementResponse moveCustomerChipsToTable(
             UUID tableId, UUID sessionId, ChipCustodyTransferRequest request) {
         validatePitTransactionRole();
+        ChipCustodyMovement completed = completedTransfer(request, ChipCustodyMovementType.CUSTOMER_TO_TABLE, sessionId, tableId);
+        if (completed != null) return response(completed);
         businessDates.validateNewOperationalMutationAllowed();
         TransferContext context = validateCustomerTableTransferForUpdate(tableId, sessionId);
         return response(transfer(ChipCustodyMovementType.CUSTOMER_TO_TABLE,
@@ -253,6 +267,8 @@ public class ChipCustodyService {
     public ChipCustodyMovementResponse returnTableChipsToCustomer(
             UUID tableId, UUID sessionId, ChipCustodyTransferRequest request) {
         validatePitTransactionRole();
+        ChipCustodyMovement completed = completedTransfer(request, ChipCustodyMovementType.TABLE_TO_CUSTOMER, tableId, sessionId);
+        if (completed != null) return response(completed);
         businessDates.validateSettlementMutationAllowed();
         TransferContext context = validateCustomerTableTransferForUpdate(tableId, sessionId);
         return response(recordTableToCustomer(context.assignment(), request.denominations(),
@@ -515,10 +531,21 @@ public class ChipCustodyService {
                 Map.copyOf(values), total(values));
     }
 
+    private ChipCustodyMovement completedTransfer(ChipCustodyTransferRequest request,
+            ChipCustodyMovementType type, UUID source, UUID destination) {
+        ChipCustodyMovement value = movements.findByIdempotencyKey(request.idempotencyKey().trim()).orElse(null);
+        if (value != null) {
+            Map<Integer, Long> quantities = normalize(request.denominations());
+            validateReplay(value, type, source, destination, quantities, total(quantities));
+        }
+        return value;
+    }
+
     private void validateReplay(ChipCustodyMovement replay, ChipCustodyMovementType type,
             UUID sourceReferenceId, UUID destinationReferenceId, Map<Integer, Long> denominations,
             BigDecimal total) {
-        if (replay.getMovementType() != type
+        if (!Objects.equals(replay.getCreatedBy(), authenticatedUsers.getRequiredUser().getId())
+                || replay.getMovementType() != type
                 || !Objects.equals(replay.getSourceReferenceId(), sourceReferenceId)
                 || !Objects.equals(replay.getDestinationReferenceId(), destinationReferenceId)
                 || !denominations.equals(replay.getDenominations())

@@ -218,29 +218,22 @@ class PitTableCustomerAssignmentServiceTests {
         verify(auditService, never()).log(any(), any(), any(), any(), any());
     }
 
-    @Test void leaveReplayCannotBypassAssignedTableAuthorization() {
-        PitTableCustomerAssignment left = leftAssignment("leave-key");
-        stubExistingAssignment(left);
+    @Test void completedLeaveReplaySurvivesAssignmentEndAndSystemLock() {
+        PitTableCustomerAssignment left = leftAssignment("leave-key"); stubExistingAssignment(left);
         doThrow(new org.springframework.security.access.AccessDeniedException("not assigned"))
                 .when(tableAccess).requireOperationalAccess(tableId);
-
-        assertThatThrownBy(() -> service.leave(tableId, left.getId(),
-                new LeavePitTableCustomerRequest(Map.of(), "leave-key")))
-                .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
-        verifyNoInteractions(custodyService);
+        when(systemLockService.isSystemLocked()).thenReturn(true);
+        assertThat(service.leave(tableId, left.getId(), new LeavePitTableCustomerRequest(Map.of(), "leave-key")).assignmentId()).isEqualTo(left.getId());
+        verify(tableAccess, never()).requireOperationalAccess(any());
+        verify(repository, never()).save(any());
         verify(auditService, never()).log(any(), any(), any(), any(), any());
     }
 
-    @Test void leaveReplayStillHonorsSystemLock() {
-        PitTableCustomerAssignment left = leftAssignment("leave-key");
-        stubExistingAssignment(left);
-        when(systemLockService.isSystemLocked()).thenReturn(true);
-
-        assertThatThrownBy(() -> service.leave(tableId, left.getId(),
-                new LeavePitTableCustomerRequest(Map.of(), "leave-key")))
-                .hasMessageContaining("System is locked");
-        verifyNoInteractions(custodyService);
-        verify(auditService, never()).log(any(), any(), any(), any(), any());
+    @Test void completedLeaveReplayRejectsAnotherActor() {
+        PitTableCustomerAssignment left = leftAssignment("leave-key"); left.setLeftBy(UUID.randomUUID()); stubExistingAssignment(left);
+        assertThatThrownBy(() -> service.leave(tableId, left.getId(), new LeavePitTableCustomerRequest(Map.of(), "leave-key")))
+                .hasMessageContaining("another actor");
+        verify(repository, never()).save(any());
     }
 
     private Customer customer(CustomerStatus status) {

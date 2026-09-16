@@ -92,15 +92,8 @@ public class PitTableCustomerAssignmentService {
     public PitTablePlayerResponse leave(UUID tableId, UUID assignmentId,
             LeavePitTableCustomerRequest request) {
         validateActorAndOperations("remove customers from Pit Tables");
-        businessDateService.validateSettlementMutationAllowed();
-        validateOpenBusinessDateAndLock();
-        PitTableCustomerAssignment preview = repository.findById(assignmentId)
-                .orElseThrow(() -> new ResourceNotFoundException("Pit table customer assignment not found."));
-        sessionRepository.findByIdForUpdate(preview.getCustomerSessionId())
-                .orElseThrow(() -> new ResourceNotFoundException("Customer session not found."));
-        tableRepository.findByIdForUpdate(preview.getPitTableId())
-                .orElseThrow(() -> new ResourceNotFoundException("Pit table not found."));
-        tableAccess.requireOperationalAccess(preview.getPitTableId());
+        // Acquire the existing lifecycle lock before row locks, including completed replay.
+        businessDateService.lockLifecycleForPitOpening();
         PitTableCustomerAssignment assignment = repository.findByIdForUpdate(assignmentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Pit table customer assignment not found."));
         if (!tableId.equals(assignment.getPitTableId())) {
@@ -109,12 +102,21 @@ public class PitTableCustomerAssignmentService {
         String settlementKey = request.idempotencyKey().trim();
         if (assignment.getStatus() == PitTableCustomerAssignmentStatus.LEFT
                 && settlementKey.equals(assignment.getCustodySettlementKey())) {
+            if (!java.util.Objects.equals(assignment.getLeftBy(), authenticatedUserService.getRequiredUser().getId()))
+                throw new com.casino.casinoerp.exception.ResourceConflictException("Settlement key belongs to another actor.");
             chipCustodyService.validateAssignmentLeaveReplay(assignment, request.denominations(),
                     "ASSIGNMENT_SETTLEMENT:" + settlementKey);
             return toResponse(assignment,
                     customerRepository.findById(assignment.getCustomerId()).orElseThrow(),
                     sessionRepository.findById(assignment.getCustomerSessionId()).orElseThrow());
         }
+        businessDateService.validateSettlementMutationAllowed();
+        validateOpenBusinessDateAndLock();
+        sessionRepository.findByIdForUpdate(assignment.getCustomerSessionId())
+                .orElseThrow(() -> new ResourceNotFoundException("Customer session not found."));
+        tableRepository.findByIdForUpdate(assignment.getPitTableId())
+                .orElseThrow(() -> new ResourceNotFoundException("Pit table not found."));
+        tableAccess.requireOperationalAccess(assignment.getPitTableId());
         if (assignment.getStatus() != PitTableCustomerAssignmentStatus.ACTIVE) {
             throw new IllegalArgumentException("Pit table customer assignment is not active.");
         }

@@ -61,7 +61,9 @@ public class LosingReturnService {
         String key = request.idempotencyKey().trim();
         LosingReturn replay = repository.findByIdempotencyKey(key).orElse(null);
         if (replay != null) {
-            if (!replay.getCustomerId().equals(request.customerId()) || !replay.getCustomerSessionId().equals(request.customerSessionId()))
+            if (!java.util.Objects.equals(replay.getCreatedBy(), authenticatedUsers.getRequiredUser().getId())
+                    || !java.util.Objects.equals(replay.getRemarks(), normalize(request.remarks()))
+                    || !replay.getCustomerId().equals(request.customerId()) || !replay.getCustomerSessionId().equals(request.customerSessionId()))
                 throw new ResourceConflictException("Idempotency key has already been used for a different Losing Return.");
             return response(replay);
         }
@@ -74,7 +76,9 @@ public class LosingReturnService {
                 request.customerId(), request.customerSessionId(), date);
         replay = repository.findByIdempotencyKey(key).orElse(null);
         if (replay != null) {
-            if (!replay.getCustomerId().equals(request.customerId())
+            if (!java.util.Objects.equals(replay.getCreatedBy(), authenticatedUsers.getRequiredUser().getId())
+                    || !java.util.Objects.equals(replay.getRemarks(), normalize(request.remarks()))
+                    || !replay.getCustomerId().equals(request.customerId())
                     || !replay.getCustomerSessionId().equals(request.customerSessionId()))
                 throw new ResourceConflictException(
                         "Idempotency key has already been used for a different Losing Return.");

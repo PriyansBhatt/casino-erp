@@ -290,14 +290,16 @@ public class PitTableStaffAssignmentService {
 
     private void validateAssignReplay(PitTableStaffAssignment replay, UUID tableId, UUID staffUserId,
             PitTableStaffAssignmentRole role, String remarks) {
-        if (!tableId.equals(replay.getPitTableId()) || !staffUserId.equals(replay.getStaffUserId())
+        if (!Objects.equals(replay.getAssignedBy(), authenticatedUser.getRequiredUser().getId())
+                || !tableId.equals(replay.getPitTableId()) || !staffUserId.equals(replay.getStaffUserId())
                 || role != replay.getAssignmentRole() || !Objects.equals(remarks, replay.getRemarks())) {
             throw new ResourceConflictException("Idempotency key has already been used for a different staff assignment.");
         }
     }
 
     private void validateEndReplay(PitTableStaffAssignment replay, UUID tableId, UUID assignmentId, String remarks) {
-        if (!assignmentId.equals(replay.getId()) || !tableId.equals(replay.getPitTableId())
+        if (!Objects.equals(replay.getEndedBy(), authenticatedUser.getRequiredUser().getId())
+                || !assignmentId.equals(replay.getId()) || !tableId.equals(replay.getPitTableId())
                 || !Objects.equals(remarks, replay.getEndRemarks())) {
             throw new ResourceConflictException("Idempotency key has already been used for a different assignment end.");
         }

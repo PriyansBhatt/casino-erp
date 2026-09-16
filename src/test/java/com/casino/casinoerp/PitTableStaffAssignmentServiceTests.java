@@ -51,6 +51,7 @@ class PitTableStaffAssignmentServiceTests {
 
     @BeforeEach
     void setUp() {
+        lenient().when(authenticatedUser.getRequiredUser()).thenReturn(actor(Role.SUPER_ADMIN));
         service = new PitTableStaffAssignmentService(assignments, tables, users, businessDates,
                 systemLock, currentRole, permissions, authenticatedUser, audit, tableAccess);
     }
@@ -185,6 +186,26 @@ class PitTableStaffAssignmentServiceTests {
         assertThatThrownBy(() -> service.assign(TABLE_ID,
                 assignRequest(DEALER_B_ID, PitTableStaffAssignmentRole.DEALER, "same")))
                 .hasMessageContaining("different staff assignment");
+    }
+
+    @Test
+    void anotherActorCannotReplayStaffAssignmentOrEnd() {
+        allow(Role.SUPER_ADMIN);
+        PitTableStaffAssignment original = assignment(DEALER_A_ID);
+        original.setAssignedBy(UUID.randomUUID());
+        when(assignments.findByAssignmentIdempotencyKey("same")).thenReturn(Optional.of(original));
+        assertThatThrownBy(() -> service.assign(TABLE_ID,
+                assignRequest(DEALER_A_ID, PitTableStaffAssignmentRole.DEALER, "same")))
+                .isInstanceOf(ResourceConflictException.class);
+        original.setEndedBy(UUID.randomUUID());
+        original.setEndRemarks("End");
+        when(assignments.findByEndIdempotencyKey("end")).thenReturn(Optional.of(original));
+        assertThatThrownBy(() -> service.end(TABLE_ID, original.getId(),
+                new EndPitTableStaffAssignmentRequest("End", "end")))
+                .isInstanceOf(ResourceConflictException.class);
+        verifyNoInteractions(audit, businessDates);
+        verify(assignments, never()).save(any());
+        verify(assignments, never()).saveAndFlush(any());
     }
 
     @Test

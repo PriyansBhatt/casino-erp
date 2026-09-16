@@ -82,6 +82,20 @@ class ChipCustodyServiceTests {
     }
 
     @Test
+    void cageOpeningRejectsUncommittedOldDateButRecoversCompletedOriginal() {
+        var request = new ChipCustodyTransferRequest(Map.of(500, 2L), "opening-retry", businessDate.minusDays(1));
+        assertThatThrownBy(() -> service.initializeCage(request)).hasMessageContaining("Business Date changed");
+        verifyNoInteractions(inventory);
+        var completed = movement(ChipCustodyMovementType.CAGE_OPENING, null, null, Map.of(500, 2L), "1000");
+        completed.setId(UUID.randomUUID()); completed.setBusinessDate(businessDate.minusDays(1));
+        when(movements.findByIdempotencyKey("opening-retry")).thenReturn(Optional.of(completed));
+        assertThat(service.initializeCage(request).id()).isEqualTo(completed.getId());
+        assertThatThrownBy(() -> service.initializeCage(new ChipCustodyTransferRequest(Map.of(500, 2L), "opening-retry", businessDate)))
+                .hasMessageContaining("different Business Date");
+        verify(movements, never()).save(any());
+    }
+
+    @Test
     void exitedOpenSessionCannotTransferInEitherDirection() {
         var session = openSession(); session.setExitTime(java.time.LocalDateTime.now());
         when(customerSessions.findByIdForUpdate(sessionId)).thenReturn(Optional.of(session));
@@ -508,7 +522,7 @@ class ChipCustodyServiceTests {
     private ChipCustodyMovement movement(ChipCustodyMovementType type, UUID source, UUID destination,
             Map<Integer, Long> denominations, String total) {
         ChipCustodyMovement value = new ChipCustodyMovement();
-        value.setMovementType(type); value.setSourceReferenceId(source); value.setDestinationReferenceId(destination);
+        value.setCreatedBy(actorId); value.setMovementType(type); value.setSourceReferenceId(source); value.setDestinationReferenceId(destination);
         value.setDenominations(new LinkedHashMap<>(denominations)); value.setTotalValue(new BigDecimal(total));
         value.setRelatedTransactionId(UUID.randomUUID()); return value;
     }
@@ -522,4 +536,16 @@ class ChipCustodyServiceTests {
         value.setPitTableId(assignment.getPitTableId());
         return value;
     }
+    @Test void completedCustodyTransferSurvivesClosedLifecycleAndBindsOwnerAndQuantities() {
+        var saved = movement(ChipCustodyMovementType.TABLE_FLOAT_RETURN, tableId, null, Map.of(500, 2L), "1000");
+        saved.setId(UUID.randomUUID());
+        when(movements.findByIdempotencyKey("completed")).thenReturn(Optional.of(saved));
+        when(systemLock.isSystemLocked()).thenReturn(true);
+        assertThat(service.returnTableFloat(tableId, new ChipCustodyTransferRequest(Map.of(500, 2L), "completed")).id()).isEqualTo(saved.getId());
+        assertThatThrownBy(() -> service.returnTableFloat(tableId, new ChipCustodyTransferRequest(Map.of(500, 3L), "completed"))).hasMessageContaining("different chip custody");
+        saved.setCreatedBy(UUID.randomUUID());
+        assertThatThrownBy(() -> service.returnTableFloat(tableId, new ChipCustodyTransferRequest(Map.of(500, 2L), "completed"))).hasMessageContaining("different chip custody");
+        verify(movements, never()).save(any());
+    }
+
 }

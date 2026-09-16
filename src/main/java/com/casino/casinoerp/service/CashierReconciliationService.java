@@ -103,8 +103,10 @@ public class CashierReconciliationService {
         CashierReconciliation replay = repository.findByIdempotencyKey(key).orElse(null);
         if (replay != null) {
             validateReplay(replay, actor, request.expectedBusinessDate(), actual, denominations);
+            if (!Objects.equals(replay.getRemarks(), normalizeRemarks(request.remarks())))
+                throw new ResourceConflictException("Idempotency key has already been used with different remarks.");
             if (!"SUBMITTED".equals(replay.getLifecycleStatus()))
-                throw new ResourceConflictException("Reconciliation was reopened. Refresh, review the count and submit a new operation key.");
+                throw new ResourceConflictException("This reconciliation submission has been superseded. Refresh the reconciliation before continuing.");
             return snapshot(actor, replay);
         }
         businessDateService.validateSettlementMutationAllowed();
@@ -113,13 +115,21 @@ public class CashierReconciliationService {
         }
         LocalDate businessDate = currentOpenBusinessDate();
         validateExpectedDate(request.expectedBusinessDate(), businessDate);
-        BigDecimal opening = requiredOpeningBalance(actor.getId(), businessDate);
-        validateAmount(opening);
         CashierReconciliation existing = repository.findByCashierUserIdAndBusinessDate(actor.getId(), businessDate).orElse(null);
         if (existing != null && !"REOPENED".equals(existing.getLifecycleStatus())) {
-            throw new ResourceConflictException("Cashier reconciliation has already been submitted for this Business Date.");
+            throw new ResourceConflictException("This reconciliation submission has been superseded; reconciliation has already been submitted for this Business Date. Refresh before continuing.");
         }
 
+        // Only the exact reopened lifecycle observed when preparing this operation may be replaced.
+        // Historical receipts are not retained: superseded operations are rejected, never reconstructed.
+        if ((existing == null && request.expectedReopenedAt() != null)
+                || (existing != null && (request.expectedReopenedAt() == null
+                || !Objects.equals(request.expectedReopenedAt(), existing.getReopenedAt())))) {
+            throw new ResourceConflictException("This reconciliation submission has been superseded. Refresh the reconciliation before continuing.");
+        }
+
+        BigDecimal opening = requiredOpeningBalance(actor.getId(), businessDate);
+        validateAmount(opening);
         TenderSnapshot tenders = tenderSnapshot(actor.getId(), businessDate);
         BigDecimal expected = opening.add(tenders.cashReceived()).subtract(tenders.cashPaid());
         validateAmount(expected.abs());
@@ -168,7 +178,7 @@ public class CashierReconciliationService {
             throw new ResourceConflictException("Only a submitted cashier reconciliation can be reopened.");
         }
         entity.setLifecycleStatus("REOPENED");
-        entity.setReopenedAt(LocalDateTime.now());
+        entity.setReopenedAt(LocalDateTime.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS));
         entity.setReopenedBy(actor.getId());
         entity.setReopenReason(normalizedReason);
         CashierReconciliation saved = repository.save(entity);

@@ -54,7 +54,7 @@ class LosingReturnServiceTests {
     @Test void reopenedReconciliationAllowsPosting(){ when(results.findByCustomerIdAndBusinessDateOrderByCreatedAtAsc(customerId,date)).thenReturn(List.of(result(VerifiedGamingResultType.LOSS,"20000")));
         assertThatNoException().isThrownBy(()->service.create(new CreateLosingReturnRequest(customerId,sessionId,"key",null))); }
     @Test void unauthorizedRoleRejected(){ when(roles.getCurrentUserRole()).thenReturn(Role.RECEPTIONIST.name()); assertThatThrownBy(()->service.eligibility(customerId)).hasMessageContaining("Access denied"); }
-    @Test void identicalIdempotentReplayDoesNotWriteAgain(){ LosingReturn prior=new LosingReturn(); prior.setId(UUID.randomUUID()); prior.setCustomerId(customerId); prior.setCustomerSessionId(sessionId); prior.setLosingReturnCode("LR-1"); prior.setBusinessDate(date); prior.setEligibleVerifiedLoss(new BigDecimal("20000")); prior.setReturnRate(new BigDecimal("0.10")); prior.setAmountPaid(new BigDecimal("2000")); prior.setPaymentMode("CASH");
+    @Test void identicalIdempotentReplayDoesNotWriteAgain(){ LosingReturn prior=new LosingReturn(); prior.setId(UUID.randomUUID()); prior.setCustomerId(customerId); prior.setCustomerSessionId(sessionId); prior.setCreatedBy(actorId); prior.setLosingReturnCode("LR-1"); prior.setBusinessDate(date); prior.setEligibleVerifiedLoss(new BigDecimal("20000")); prior.setReturnRate(new BigDecimal("0.10")); prior.setAmountPaid(new BigDecimal("2000")); prior.setPaymentMode("CASH");
         when(repo.findByIdempotencyKey("replay")).thenReturn(Optional.of(prior)); var value=service.create(new CreateLosingReturnRequest(customerId,sessionId,"replay",null)); assertThat(value.id()).isEqualTo(prior.getId()); verify(repo,never()).save(any()); }
     @Test void secondAttemptRecalculatesAfterFirstReturnAndFindsNoEligibility(){ when(results.findByCustomerIdAndBusinessDateOrderByCreatedAtAsc(customerId,date)).thenReturn(List.of(result(VerifiedGamingResultType.LOSS,"50000")));
         var first=service.create(new CreateLosingReturnRequest(customerId,sessionId,"first",null)); LosingReturn prior=new LosingReturn(); prior.setAmountPaid(first.amountPaid());
@@ -99,4 +99,11 @@ class LosingReturnServiceTests {
         verify(repo,never()).save(any());
     }
     private VerifiedGamingResult result(VerifiedGamingResultType type,String amount){ VerifiedGamingResult v=new VerifiedGamingResult(); v.setResultType(type); v.setAmount(new BigDecimal(amount)); return v; }
+    @Test void losingReturnKeyCannotBeUsedByAnotherCashier() {
+        var saved = new LosingReturn(); saved.setCustomerId(customerId); saved.setCustomerSessionId(sessionId); saved.setCreatedBy(UUID.randomUUID());
+        when(repo.findByIdempotencyKey("foreign")).thenReturn(Optional.of(saved));
+        assertThatThrownBy(() -> service.create(new CreateLosingReturnRequest(customerId, sessionId, "foreign", null))).isInstanceOf(ResourceConflictException.class);
+        verify(repo, never()).save(any());
+    }
+
 }

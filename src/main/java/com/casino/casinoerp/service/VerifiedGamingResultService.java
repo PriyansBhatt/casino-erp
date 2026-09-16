@@ -80,7 +80,6 @@ public class VerifiedGamingResultService {
                 .orElse(false)) {
             throw new RuntimeException("Access denied. Only Dealer, Pit Supervisor or Super Admin can record verified gaming results.");
         }
-        tableAccess.requireOperationalAccess(request.pitTableId());
 
         String idempotencyKey = request.idempotencyKey().trim();
         Map<Integer, Integer> denominations = validateAndNormalizeDenominations(request.denominations());
@@ -94,6 +93,7 @@ public class VerifiedGamingResultService {
             return toResponse(existing, null);
         }
 
+        tableAccess.requireOperationalAccess(request.pitTableId());
         businessDateService.validateNewOperationalMutationAllowed();
         businessDateService.validateBusinessDateIsOpen();
         if (systemLockService.isSystemLocked()) {
@@ -174,7 +174,8 @@ public class VerifiedGamingResultService {
     private void validateIdempotentReplay(
             VerifiedGamingResult existing, CreateVerifiedGamingResultRequest request,
             Map<Integer, Integer> denominations, BigDecimal calculatedAmount) {
-        if (!request.customerId().equals(existing.getCustomerId())
+        if (!java.util.Objects.equals(existing.getCreatedBy(), authenticatedUserService.getRequiredUser().getId())
+                || !request.customerId().equals(existing.getCustomerId())
                 || !request.customerSessionId().equals(existing.getCustomerSessionId())
                 || !request.pitTableId().equals(existing.getPitTableId())
                 || !request.assignmentId().equals(existing.getAssignmentId())
