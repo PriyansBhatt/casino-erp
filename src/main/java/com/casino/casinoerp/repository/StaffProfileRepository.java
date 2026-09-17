@@ -9,6 +9,7 @@ import jakarta.persistence.LockModeType;
 import java.util.*;
 
 public interface StaffProfileRepository extends JpaRepository<StaffProfile, UUID> {
+    List<StaffProfile> findByUserIdIn(Collection<UUID> userIds);
     Optional<StaffProfile> findByUserId(UUID userId);
     boolean existsByUserId(UUID userId);
     boolean existsByEmployeeCodeIgnoreCase(String employeeCode);

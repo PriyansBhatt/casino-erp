@@ -81,7 +81,8 @@ public class SecurityConfig {
                                 "/api/pit-tables/*/mode", "/api/pit-tables/*/eligible-players")
                         .hasAnyRole(Role.DEALER.name(), Role.PIT_SUPERVISOR.name(), Role.SUPER_ADMIN.name())
 
-                        .requestMatchers(HttpMethod.GET, "/api/users", "/api/users/**")
+                        .requestMatchers(HttpMethod.DELETE, "/api/users", "/api/users/**").denyAll()
+                        .requestMatchers("/api/users", "/api/users/**")
                         .hasRole(Role.SUPER_ADMIN.name())
 
                         .requestMatchers(HttpMethod.GET, "/api/customers/id/**")

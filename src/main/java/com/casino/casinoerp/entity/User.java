@@ -17,6 +17,7 @@ public class User {
     private String username;
 
     @JsonIgnore
+    @lombok.ToString.Exclude
     @Column(name = "password_hash")
     private String passwordHash;
 
@@ -32,4 +33,7 @@ public class User {
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;
+
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
 }

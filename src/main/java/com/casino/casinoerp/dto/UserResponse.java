@@ -12,6 +12,19 @@ public class UserResponse {
     private final String status;
     private final String role;
     private final LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
+    private StaffLink staff;
+    public record StaffLink(UUID id, String employeeCode) {}
+
+    public UserResponse(UUID id, String username, String fullName, String email, String status,
+                        String role, LocalDateTime createdAt, LocalDateTime updatedAt, StaffLink staff) {
+        this(id, username, fullName, email, status, role, createdAt);
+        this.updatedAt = updatedAt;
+        this.staff = staff;
+    }
+    public LocalDateTime getUpdatedAt() { return updatedAt; }
+    public StaffLink getStaff() { return staff; }
+
 
     public UserResponse(
             UUID id,

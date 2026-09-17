@@ -100,4 +100,14 @@ class PitTableStaffAssignmentSecurityTests {
                         .with(actor).contentType("application/json").content(HANDOVER))
                 .andExpect(status().isForbidden());
     }
+
+    @org.junit.jupiter.api.Test
+    void missingAndInvalidRoleAreControlledWithoutServiceInvocation() throws Exception {
+        mvc.perform(get("/api/pit-tables/staff/candidates").with(user("superadmin").roles("SUPER_ADMIN")))
+                .andExpect(status().isBadRequest())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.success").value(false));
+        mvc.perform(get("/api/pit-tables/staff/candidates").param("role", "INVALID").with(user("superadmin").roles("SUPER_ADMIN")))
+                .andExpect(status().isBadRequest());
+        org.mockito.Mockito.verifyNoInteractions(service);
+    }
 }

@@ -11,6 +11,18 @@ import java.util.UUID;
 import java.util.List;
 
 public interface UserRepository extends JpaRepository<User, UUID> {
+    // All A1 writers acquire this transaction-scoped lock before any account row lock.
+    @Query(value = "select 1 from pg_advisory_xact_lock(42424220260917)", nativeQuery = true)
+    int lockAccountAdministration();
+
+    @Query(value = """
+            select count(*) from core.users where upper(status) = 'ACTIVE'
+            and regexp_replace(regexp_replace(upper(btrim(role)), '[[:space:]-]+', '_', 'g'), '_+', '_', 'g') = 'SUPER_ADMIN'
+            """, nativeQuery = true)
+    long countActiveSuperAdmins();
+
+    List<User> findByOrderByUsernameAscIdAsc(org.springframework.data.domain.Pageable pageable);
+
     User findByUsername(String username);
     List<User> findByStatusIgnoreCaseOrderByUsernameAsc(String status);
 
