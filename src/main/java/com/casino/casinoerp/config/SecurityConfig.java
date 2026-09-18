@@ -149,8 +149,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/buyins/current")
                         .hasAnyRole(Role.CASHIER.name(), Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())
 
-                        .requestMatchers(HttpMethod.GET, "/api/reports/running-funds")
+                        .requestMatchers(HttpMethod.GET, "/api/reports/daily-operations", "/api/reports/reconciliations", "/api/reports/running-funds")
                         .hasAnyRole(Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())
+                        .requestMatchers("/api/reports", "/api/reports/**").denyAll()
 
                         .requestMatchers(HttpMethod.GET, "/api/customer-bonuses")
                         .hasAnyRole(Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())

@@ -1,140 +1,73 @@
 package com.casino.casinoerp;
-
-import com.casino.casinoerp.entity.*;
+import com.casino.casinoerp.entity.BusinessDate;
+import com.casino.casinoerp.dto.*;
 import com.casino.casinoerp.repository.*;
 import com.casino.casinoerp.security.Role;
 import com.casino.casinoerp.service.*;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-
+import org.junit.jupiter.api.*;
 import java.math.BigDecimal;
-import java.time.LocalDate;
+import java.time.*;
 import java.util.*;
-
 import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class RunningFundsReportServiceTests {
-    private final BusinessDateRepository dates = mock(BusinessDateRepository.class);
-    private final BusinessDateService dateService = mock(BusinessDateService.class);
-    private final ChipBuyInRepository buyIns = mock(ChipBuyInRepository.class);
-    private final ChipCashOutRepository cashOuts = mock(ChipCashOutRepository.class);
-    private final LosingReturnRepository losingReturns = mock(LosingReturnRepository.class);
-    private final VerifiedGamingResultRepository gaming = mock(VerifiedGamingResultRepository.class);
-    private final CashierReconciliationRepository reconciliations = mock(CashierReconciliationRepository.class);
-    private final UserRepository users = mock(UserRepository.class);
-    private final SessionFinancialPositionService positions = mock(SessionFinancialPositionService.class);
-    private final CurrentUserRoleService roles = mock(CurrentUserRoleService.class);
-    private final RunningFundsReportService service = new RunningFundsReportService(
-            dates, dateService, buyIns, cashOuts, losingReturns, gaming, reconciliations,
-            users, positions, roles, new RolePermissionService());
-    private final LocalDate date = LocalDate.of(2026, 8, 8);
-
-    @BeforeEach
-    void setUp() {
+    final BusinessDateRepository dates=mock(BusinessDateRepository.class);
+    final BusinessDateService lifecycle=mock(BusinessDateService.class);
+    final ManagementReportReadRepository reads=mock(ManagementReportReadRepository.class);
+    final CurrentUserRoleService roles=mock(CurrentUserRoleService.class);
+    final RunningFundsReportService service=new RunningFundsReportService(dates,lifecycle,reads,roles);
+    final LocalDate date=LocalDate.of(2026,9,2);
+    BusinessDate selected;
+    @BeforeEach void setup(){
+        selected=new BusinessDate();selected.setBusinessDate(date);selected.setStatus("CLOSED");
         when(roles.getCurrentRole()).thenReturn(Optional.of(Role.DIRECTOR));
-        BusinessDate businessDate = new BusinessDate();
-        businessDate.setBusinessDate(date);
-        businessDate.setStatus("OPEN");
-        when(dates.findByBusinessDate(date)).thenReturn(Optional.of(businessDate));
-        when(buyIns.findByBusinessDate(date)).thenReturn(List.of());
-        when(cashOuts.findByBusinessDate(date)).thenReturn(List.of());
-        when(losingReturns.findByBusinessDate(date)).thenReturn(List.of());
-        when(gaming.findByBusinessDate(date)).thenReturn(List.of());
-        when(reconciliations.findByBusinessDateOrderBySubmittedAtDesc(date)).thenReturn(List.of());
-        when(users.findAll()).thenReturn(List.of());
-        when(positions.getOutstandingPosition(date)).thenReturn(BigDecimal.ZERO);
+        when(dates.findByBusinessDate(date)).thenReturn(Optional.of(selected));
+        when(reads.guests(date)).thenReturn(new ManagementReportReadRepository.Guests(0,0));
+        var tender=Map.of("CASH",new RunningFundsReportResponse.Tender(0,BigDecimal.ZERO));
+        when(reads.payments(date)).thenReturn(new ManagementReportReadRepository.Payments(tender,tender));
+        when(reads.payouts(date)).thenReturn(new ManagementReportReadRepository.Payouts(0,BigDecimal.ZERO));
+        when(reads.gaming(date)).thenReturn(new ManagementReportReadRepository.Gaming(BigDecimal.ZERO,BigDecimal.ZERO));
+        when(reads.reconciliations(date)).thenReturn(new ManagementReportReadRepository.Reconciliations(0,0,null));
     }
-
-    @Test
-    void aggregatesAuthoritativeCashGamingAndReconciliationValues() {
-        UUID cashierId = UUID.randomUUID();
-        when(buyIns.findByBusinessDate(date)).thenReturn(List.of(buyIn("100000", cashierId)));
-        when(cashOuts.findByBusinessDate(date)).thenReturn(List.of(cashOut("25000", cashierId)));
-        when(losingReturns.findByBusinessDate(date)).thenReturn(List.of(losingReturn("5000", cashierId)));
-        when(gaming.findByBusinessDate(date)).thenReturn(List.of(result("20000", VerifiedGamingResultType.WIN), result("50000", VerifiedGamingResultType.LOSS)));
-        when(positions.getOutstandingPosition(date)).thenReturn(new BigDecimal("45000"));
-        CashierReconciliation reconciliation = reconciliation(cashierId, "SUBMITTED", "100");
-        when(reconciliations.findByBusinessDateOrderBySubmittedAtDesc(date)).thenReturn(List.of(reconciliation));
-        User cashier = cashier(cashierId);
-        when(users.findAllById(any())).thenReturn(List.of(cashier));
-        when(users.findAll()).thenReturn(List.of(cashier));
-
-        var report = service.getReport(date);
-
-        assertThat(report.buyInReceived()).isEqualByComparingTo("100000");
-        assertThat(report.cashOutPaid()).isEqualByComparingTo("25000");
-        assertThat(report.losingReturnPaid()).isEqualByComparingTo("5000");
-        assertThat(report.netCustomerCashMovement()).isEqualByComparingTo("70000");
-        assertThat(report.verifiedGamingWins()).isEqualByComparingTo("20000");
-        assertThat(report.verifiedGamingLosses()).isEqualByComparingTo("50000");
-        assertThat(report.casinoGamingNet()).isEqualByComparingTo("30000");
-        assertThat(report.outstandingCustomerChipPosition()).isEqualByComparingTo("45000");
-        assertThat(report.submittedCashiers()).isOne();
-        assertThat(report.unresolvedCashiers()).isZero();
-        assertThat(report.aggregateSubmittedVariance()).isEqualByComparingTo("100");
+    @Test void historicalDateDoesNotRequireOpenDateAndKeepsKathmanduWindow(){
+        var report=service.getReport(date);assertThat(report.status()).isEqualTo("CLOSED");
+        assertThat(report.windowStart().toString()).isEqualTo("2026-09-02T09:00+05:45");
+        assertThat(report.windowEnd().toString()).isEqualTo("2026-09-03T09:00+05:45");
+        assertThat(report.sessionEntries()).isZero();assertThat(report.aggregateSubmittedVariance()).isNull();
+        verifyNoInteractions(lifecycle);
+        verify(reads).guests(date);verify(reads).payments(date);verify(reads).payouts(date);verify(reads).gaming(date);verify(reads).reconciliations(date);verifyNoMoreInteractions(reads);
     }
-
-    @Test
-    void explicitBusinessDateIsIsolatedAndEmptyDateReturnsZeroTotals() {
-        var report = service.getReport(date);
-
-        assertThat(report.buyInReceived()).isZero();
-        assertThat(report.cashOutPaid()).isZero();
-        assertThat(report.losingReturnPaid()).isZero();
-        assertThat(report.netCustomerCashMovement()).isZero();
-        assertThat(report.verifiedGamingWins()).isZero();
-        assertThat(report.verifiedGamingLosses()).isZero();
-        verify(buyIns).findByBusinessDate(date);
-        verify(cashOuts).findByBusinessDate(date);
-        verify(losingReturns).findByBusinessDate(date);
-        verify(gaming).findByBusinessDate(date);
-        verify(buyIns, never()).findAll();
+    @Test void defaultUsesOnlyCurrentOpenDate(){when(lifecycle.getCurrentOpenBusinessDate()).thenReturn(Optional.of(selected));assertThat(service.getReport(null).businessDate()).isEqualTo(date);verifyNoInteractions(dates);}
+    @Test void missingOpenAndUnknownExplicitDateFailWithoutReadingTotals(){
+        assertThatThrownBy(()->service.getReport(null)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(()->service.getReport(date.plusDays(1))).hasMessageContaining("not found");verifyNoInteractions(reads);
     }
-
-    @Test
-    void reopenedReconciliationIsReportedAsUnresolvedAndExcludedFromSubmittedVariance() {
-        UUID cashierId = UUID.randomUUID();
-        CashierReconciliation reopened = reconciliation(cashierId, "REOPENED", "250");
-        User cashier = cashier(cashierId);
-        when(reconciliations.findByBusinessDateOrderBySubmittedAtDesc(date)).thenReturn(List.of(reopened));
-        when(users.findAllById(any())).thenReturn(List.of(cashier));
-        when(users.findAll()).thenReturn(List.of(cashier));
-
-        var report = service.getReport(date);
-
-        assertThat(report.submittedCashiers()).isZero();
-        assertThat(report.reopenedCashiers()).isOne();
-        assertThat(report.unresolvedCashiers()).isOne();
-        assertThat(report.aggregateSubmittedVariance()).isZero();
+    @Test void usesPersistedPayoutAndGamingAggregatesWithoutEligibilityOrCustody(){
+        when(reads.payouts(date)).thenReturn(new ManagementReportReadRepository.Payouts(2,new BigDecimal("123.45")));
+        when(reads.gaming(date)).thenReturn(new ManagementReportReadRepository.Gaming(new BigDecimal("100"),new BigDecimal("70")));
+        when(reads.reconciliations(date)).thenReturn(new ManagementReportReadRepository.Reconciliations(1,2,new BigDecimal("-8")));
+        var r=service.getReport(date);assertThat(r.losingReturnAmountPaid()).isEqualByComparingTo("123.45");assertThat(r.customerWins()).isEqualByComparingTo("100");assertThat(r.customerLosses()).isEqualByComparingTo("70");assertThat(r.aggregateSubmittedVariance()).isEqualByComparingTo("-8");assertThat(r.reopenedCount()).isEqualTo(2);
     }
-
-    @Test
-    void operationalRoleCannotReadManagementReport() {
-        when(roles.getCurrentRole()).thenReturn(Optional.of(Role.CASHIER));
-        assertThatThrownBy(() -> service.getReport(date)).hasMessageContaining("restricted to management");
-        verifyNoInteractions(dates);
+    @Test void rejectsEveryNonManagementRole(){for(Role role:Role.values())if(role!=Role.DIRECTOR&&role!=Role.SUPER_ADMIN){when(roles.getCurrentRole()).thenReturn(Optional.of(role));assertThatThrownBy(()->service.getReport(date)).isInstanceOf(org.springframework.security.access.AccessDeniedException.class);}verifyNoInteractions(dates,reads,lifecycle);}
+    @Test void boundsPagesAndReturnsLookahead(){
+        var row=new RunningFundsReconciliationResponse(UUID.randomUUID(),date,UUID.randomUUID(),null,null,"REOPENED",null,"REOPENED_SAVED_RECORD",BigDecimal.TEN,BigDecimal.TEN,null,null,date.atTime(9,0),date.atTime(10,0));
+        when(reads.rows(date,0,1)).thenReturn(List.of(row,row));
+        var result=service.reconciliations(date,0,1);assertThat(result.items()).hasSize(1);assertThat(result.hasNext()).isTrue();assertThat(result.items().getFirst().calculationBasis()).isEqualTo("REOPENED_SAVED_RECORD");
+        for(int size:List.of(0,101))assertThatThrownBy(()->service.reconciliations(date,0,size)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(()->service.reconciliations(date,-1,50)).isInstanceOf(IllegalArgumentException.class);
     }
-
-    private ChipBuyIn buyIn(String amount, UUID actor) {
-        ChipBuyIn value = new ChipBuyIn(); value.setAmountReceived(new BigDecimal(amount)); value.setCreatedBy(actor); return value;
-    }
-    private ChipCashOut cashOut(String amount, UUID actor) {
-        ChipCashOut value = new ChipCashOut(); value.setCashPaid(new BigDecimal(amount)); value.setCreatedBy(actor); return value;
-    }
-    private LosingReturn losingReturn(String amount, UUID actor) {
-        LosingReturn value = new LosingReturn(); value.setAmountPaid(new BigDecimal(amount)); value.setCreatedBy(actor); return value;
-    }
-    private VerifiedGamingResult result(String amount, VerifiedGamingResultType type) {
-        VerifiedGamingResult value = new VerifiedGamingResult(); value.setAmount(new BigDecimal(amount)); value.setResultType(type); return value;
-    }
-    private CashierReconciliation reconciliation(UUID cashierId, String lifecycle, String variance) {
-        CashierReconciliation value = new CashierReconciliation(); value.setId(UUID.randomUUID()); value.setCashierUserId(cashierId);
-        value.setLifecycleStatus(lifecycle); value.setStatus("BALANCED"); value.setVariance(new BigDecimal(variance));
-        value.setExpectedClosingCash(BigDecimal.TEN); value.setActualClosingCash(BigDecimal.TEN); return value;
-    }
-    private User cashier(UUID id) {
-        User value = new User(); value.setId(id); value.setUsername("cashier"); value.setFullName("Cashier");
-        value.setRole("CASHIER"); value.setStatus("ACTIVE"); return value;
+    @Test void moneySerializesAsExactDecimalStringsAndAbsentVarianceAsNull() throws Exception {
+        var exact=new BigDecimal("12345678901234567.89");
+        when(reads.gaming(date)).thenReturn(new ManagementReportReadRepository.Gaming(exact,BigDecimal.ZERO));
+        var tender=Map.of("CASH",new RunningFundsReportResponse.Tender(1,exact));
+        when(reads.payments(date)).thenReturn(new ManagementReportReadRepository.Payments(tender,tender));
+        var mapper=new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules();
+        var json=mapper.readTree(mapper.writeValueAsString(service.getReport(date)));
+        assertThat(json.get("customerWins").isTextual()).isTrue();
+        assertThat(json.get("customerWins").asText()).isEqualTo("12345678901234567.89");
+        assertThat(json.path("buyIn").path("CASH").path("amount").asText()).isEqualTo("12345678901234567.89");
+        assertThat(json.get("aggregateSubmittedVariance").isNull()).isTrue();
+        assertThat(json.has("outstandingCustomerChipPosition")).isFalse();assertThat(json.has("unresolvedCashiers")).isFalse();
     }
 }
