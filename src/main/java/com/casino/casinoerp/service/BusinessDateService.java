@@ -240,11 +240,11 @@ public class BusinessDateService {
 
         BusinessDate saved = saveLifecycleChange(bd);
 
-        auditLogService.log(
-                "OPEN_BUSINESS_DATE",
+        auditLogService.logForBusinessDate(
+                saved.getBusinessDate(), "OPEN_BUSINESS_DATE",
                 "BUSINESS_DATE",
                 saved.getId(),
-                null,
+                currentUserRoleService.getCurrentUserId(),
                 "Business date opened: " + saved.getBusinessDate()
         );
 
@@ -276,11 +276,11 @@ public class BusinessDateService {
 
         BusinessDate saved = saveLifecycleChange(bd);
 
-        auditLogService.log(
-                "CLOSE_BUSINESS_DATE",
+        auditLogService.logForBusinessDate(
+                saved.getBusinessDate(), "CLOSE_BUSINESS_DATE",
                 "BUSINESS_DATE",
                 saved.getId(),
-                null,
+                currentUserRoleService.getCurrentUserId(),
                 "Business date closed: " + saved.getBusinessDate()
         );
 
@@ -311,8 +311,8 @@ public class BusinessDateService {
 
         BusinessDate saved = saveLifecycleChange(bd);
 
-        auditLogService.log(
-                "REOPEN_BUSINESS_DATE",
+        auditLogService.logForBusinessDate(
+                saved.getBusinessDate(), "REOPEN_BUSINESS_DATE",
                 "BUSINESS_DATE",
                 saved.getId(),
                 currentUserRoleService.getCurrentUserId(),

@@ -6,7 +6,6 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -30,9 +29,14 @@ public class AuditLogService {
     }
 
     public AuditLog log(String actionType, String moduleName, UUID entityId, UUID performedBy, String remarks) {
+        return logForBusinessDate(businessDateService.getCurrentBusinessDate(), actionType, moduleName, entityId, performedBy, remarks);
+    }
+
+    public AuditLog logForBusinessDate(LocalDate businessDate, String actionType, String moduleName,
+            UUID entityId, UUID performedBy, String remarks) {
         AuditLog auditLog = new AuditLog();
         
-        auditLog.setBusinessDate(businessDateService.getCurrentBusinessDate());
+        auditLog.setBusinessDate(businessDate);
         auditLog.setActionType(actionType);
         auditLog.setModuleName(moduleName);
         auditLog.setEntityId(entityId);
@@ -43,39 +47,10 @@ public class AuditLogService {
         return auditLogRepository.save(auditLog);
     }
 
-    public List<AuditLog> getByUser(UUID userId) {
-        return auditLogRepository.findByPerformedBy(userId);
-    }
-
-    public List<AuditLog> getByAction(String action) {
-        return auditLogRepository.findByActionType(action);
-    }
-
-    public List<AuditLog> getByModule(String module) {
-        return auditLogRepository.findByModuleName(module);
-    }
-
-    public List<AuditLog> getAll() {
-        String role = currentUserRoleService.getCurrentUserRole();
-
-        if (!rolePermissionService.canViewAuditLogs(role)) {
-            throw new RuntimeException(
-                    "Access denied. Only Compliance Officer, Surveillance Officer or Super Admin can view audit logs."
-            );
-        }
-
-        return auditLogRepository.findAll();
-    }
-
-    public List<AuditLog> getByBusinessDate(LocalDate businessDate) {
-        String role = currentUserRoleService.getCurrentUserRole();
-
-        if (!rolePermissionService.canViewAuditLogs(role)) {
-            throw new RuntimeException(
-                    "Access denied. Only Compliance Officer, Surveillance Officer or Super Admin can view audit logs."
-            );
-        }
-
-        return auditLogRepository.findByBusinessDate(businessDate);
+    // Existing Business Date summary needs only a count, never hydrated audit history.
+    public long countByBusinessDate(LocalDate date) {
+        if (!rolePermissionService.canViewAuditLogs(currentUserRoleService.getCurrentUserRole()))
+            throw new org.springframework.security.access.AccessDeniedException("Audit access denied.");
+        return auditLogRepository.countByBusinessDate(date);
     }
 }

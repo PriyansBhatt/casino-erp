@@ -112,6 +112,8 @@ class BusinessDateServiceTests {
         BusinessDateValidationService validation = mock(BusinessDateValidationService.class);
         AuditLogService audit = mock(AuditLogService.class);
         CurrentUserRoleService currentRole = mock(CurrentUserRoleService.class);
+        java.util.UUID actor = java.util.UUID.randomUUID();
+        when(currentRole.getCurrentUserId()).thenReturn(actor);
         BusinessDateService service = new BusinessDateService(repository, validation, audit,
                 new RolePermissionService(), currentRole, fixedClock());
         BusinessDate businessDate = new BusinessDate();
@@ -129,6 +131,7 @@ class BusinessDateServiceTests {
         verify(validation).validateCloseRequirements(date);
         verify(repository).acquireLifecycleLock();
         verify(repository).saveAndFlush(businessDate);
+        verify(audit).logForBusinessDate(date, "CLOSE_BUSINESS_DATE", "BUSINESS_DATE", null, actor, "Business date closed: " + date);
     }
 
     @Test
@@ -136,6 +139,8 @@ class BusinessDateServiceTests {
         BusinessDateRepository repository = mock(BusinessDateRepository.class);
         AuditLogService audit = mock(AuditLogService.class);
         CurrentUserRoleService currentRole = mock(CurrentUserRoleService.class);
+        java.util.UUID actor = java.util.UUID.randomUUID();
+        when(currentRole.getCurrentUserId()).thenReturn(actor);
         BusinessDateService service = new BusinessDateService(repository,
                 mock(BusinessDateValidationService.class), audit,
                 new RolePermissionService(), currentRole, fixedClock());
@@ -152,7 +157,7 @@ class BusinessDateServiceTests {
         assertThat(opened.getClosedAt()).isNull();
         assertThat(opened.getOpenedAt()).isNotNull();
         verify(repository).acquireLifecycleLock();
-        verify(audit).log("OPEN_BUSINESS_DATE", "BUSINESS_DATE", null, null,
+        verify(audit).logForBusinessDate(date, "OPEN_BUSINESS_DATE", "BUSINESS_DATE", null, currentRole.getCurrentUserId(),
                 "Business date opened: 2026-09-07");
     }
 
@@ -161,6 +166,8 @@ class BusinessDateServiceTests {
         LocalDate date = LocalDate.of(2026, 9, 6);
         BusinessDateRepository repository = mock(BusinessDateRepository.class);
         CurrentUserRoleService currentRole = mock(CurrentUserRoleService.class);
+        java.util.UUID actor = java.util.UUID.randomUUID();
+        when(currentRole.getCurrentUserId()).thenReturn(actor);
         BusinessDate closed = openDate(2026, 9, 6);
         closed.setStatus("CLOSED");
         closed.setClosedAt(LocalDateTime.of(2026, 9, 7, 6, 0));
@@ -168,8 +175,9 @@ class BusinessDateServiceTests {
         when(repository.findByStatus("OPEN")).thenReturn(List.of());
         when(repository.findByBusinessDateForUpdate(date)).thenReturn(Optional.of(closed));
         when(repository.saveAndFlush(closed)).thenReturn(closed);
+        AuditLogService audit = mock(AuditLogService.class);
         BusinessDateService service = new BusinessDateService(repository,
-                mock(BusinessDateValidationService.class), mock(AuditLogService.class),
+                mock(BusinessDateValidationService.class), audit,
                 new RolePermissionService(), currentRole, fixedClock());
 
         BusinessDate reopened = service.reopenBusinessDate(date, "review");
@@ -179,6 +187,7 @@ class BusinessDateServiceTests {
         assertThat(reopened.getRemarks()).isEqualTo("review");
         verify(repository).acquireLifecycleLock();
         verify(repository).findByBusinessDateForUpdate(date);
+        verify(audit).logForBusinessDate(date, "REOPEN_BUSINESS_DATE", "BUSINESS_DATE", null, actor, "Business date reopened: " + date);
     }
 
     @Test

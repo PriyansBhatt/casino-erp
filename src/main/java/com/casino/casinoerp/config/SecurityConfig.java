@@ -372,12 +372,9 @@ public class SecurityConfig {
                         .requestMatchers("/api/system-lock/**")
                         .hasRole(Role.SUPER_ADMIN.name())
 
-                        .requestMatchers("/api/audit-logs/**")
-                        .hasAnyRole(
-                                Role.SUPER_ADMIN.name(),
-                                Role.COMPLIANCE_OFFICER.name(),
-                                Role.SURVEILLANCE_OFFICER.name()
-                        )
+                        .requestMatchers(HttpMethod.GET, "/api/audit-logs", "/api/audit-logs/**")
+                        .hasAnyRole(Role.SUPER_ADMIN.name(), Role.DIRECTOR.name())
+                        .requestMatchers("/api/audit-logs", "/api/audit-logs/**").denyAll()
 
                         .requestMatchers("/api/alerts/**")
                         .hasAnyRole(

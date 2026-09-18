@@ -72,7 +72,7 @@ public class BusinessDateSummaryService {
                 .filter(p -> businessDate.equals(p.getBusinessDate()))
                 .count();
 
-        long totalAuditLogs = auditLogService.getByBusinessDate(businessDate).size();
+        long totalAuditLogs = auditLogService.countByBusinessDate(businessDate);
 
         summary.put("businessDate", businessDate);
         summary.put("totalSessions", totalSessions);

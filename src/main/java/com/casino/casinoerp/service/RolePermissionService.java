@@ -153,9 +153,7 @@ public class RolePermissionService {
     }
 
     public boolean canViewAuditLogs(Role role) {
-        return isSuperAdmin(role)
-                || role == Role.COMPLIANCE_OFFICER
-                || role == Role.SURVEILLANCE_OFFICER;
+        return isSuperAdmin(role) || role == Role.DIRECTOR;
     }
 
     public boolean canUseSystemLock(Role role) {
