@@ -26,6 +26,10 @@ public class SecurityConfig {
                 .cors(cors -> {})
 
                 .csrf(csrf -> csrf.disable())
+                .exceptionHandling(errors -> errors.authenticationEntryPoint((request, response, error) -> {
+                    String path = request.getRequestURI().substring(request.getContextPath().length());
+                    response.sendError(path.equals("/api/store") || path.startsWith("/api/store/") ? 401 : 403);
+                }))
                 .sessionManagement(session -> session.sessionCreationPolicy(org.springframework.security.config.http.SessionCreationPolicy.STATELESS))
 
                 .authorizeHttpRequests(auth -> auth
@@ -158,6 +162,10 @@ public class SecurityConfig {
 
                         .requestMatchers(HttpMethod.POST, "/api/customer-bonuses")
                         .hasAnyRole(Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())
+
+                        .requestMatchers(HttpMethod.GET, "/api/store", "/api/store/**")
+                        .hasAnyRole("SUPER_ADMIN", "DIRECTOR")
+                        .requestMatchers("/api/store", "/api/store/**").hasRole("SUPER_ADMIN")
 
                         .requestMatchers(HttpMethod.GET, "/api/fnb/**")
                         .hasAnyRole(Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())

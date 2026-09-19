@@ -8,6 +8,10 @@ public final class AuditDetailsPolicy {
     // No free-form reasons, staff-entered codes, legacy corrections or unknown events.
     // Account transitions include unrestricted legacy before-values: withhold them too.
     private static final Set<String> SAFE = Set.of(
+        "STORE_ITEM_CREATED", "STORE_ITEM_UPDATED", "STORE_ITEM_STATUS_CHANGED",
+        "STORE_REQUEST_CREATED", "STORE_REQUEST_CANCELLED", "STORE_STOCK_ISSUED",
+        "STORE_PROCUREMENT_CREATED", "STORE_PROCUREMENT_ORDERED", "STORE_PROCUREMENT_CANCELLED",
+        "STORE_GOODS_RECEIVED", "STORE_STOCK_OPENING", "STORE_STOCK_ADJUSTED",
         "USER_CREATED", "USER_PASSWORD_RESET",
         "OPEN_BUSINESS_DATE", "CLOSE_BUSINESS_DATE", "REOPEN_BUSINESS_DATE", "SYSTEM_LOCK",
         "CREATE_SESSION", "CLOSE_SESSION", "CHECK_IN", "CREATE_WALLET", "CREATE_SERVICE_RECORD",
