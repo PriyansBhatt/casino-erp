@@ -163,6 +163,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/customer-bonuses")
                         .hasAnyRole(Role.DIRECTOR.name(), Role.SUPER_ADMIN.name())
 
+                        .requestMatchers("/api/accounts", "/api/accounts/**")
+                        .hasAnyRole("STORE_MANAGER", "ACCOUNTANT_HEAD", "ACCOUNTS_MANAGER", "DIRECTOR")
+
                         .requestMatchers(HttpMethod.GET, "/api/store", "/api/store/**")
                         .hasAnyRole("SUPER_ADMIN", "DIRECTOR")
                         .requestMatchers("/api/store", "/api/store/**").hasRole("SUPER_ADMIN")

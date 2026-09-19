@@ -30,6 +30,11 @@ class UserServiceTests {
   assertThat(saved.getUsername()).isEqualTo("MixedCase");assertThat(saved.getEmail()).isEqualTo("person@example.com");assertThat(saved.getFullName()).isEqualTo("Full Name");assertThat(saved.getStatus()).isEqualTo("ACTIVE");assertThat(encoder.matches("secret-value",saved.getPasswordHash())).isTrue();assertThat(result.getUpdatedAt()).isNotNull();
   verify(audit).log(eq("USER_CREATED"),eq("USER_MANAGEMENT"),eq(saved.getId()),eq(admin.getId()),eq("role=CASHIER; status=ACTIVE"));
  }
+ @Test void provisionsTheThreeDistinctAccountsResponsibilities(){
+  for(String role:List.of("STORE_MANAGER","ACCOUNTANT_HEAD","ACCOUNTS_MANAGER")){
+   assertThat(service.create(new CreateUserRequest(role,"Accounts Operator",null,role,"ACTIVE","secret-value")).getRole()).isEqualTo(role);
+  }
+ }
  @Test void blankEmailBecomesNull(){assertThat(service.create(new CreateUserRequest("new","Name","  ","DEALER","ACTIVE","secret-value")).getEmail()).isNull();}
  @Test void rejectsInvalidInputs(){
   for(String role:List.of("ADMIN","MANAGER","COMPLIANCE_OFFICER","SURVEILLANCE_OFFICER","cashier"))assertThatThrownBy(()->service.create(new CreateUserRequest("new","Name",null,role,null,"secret-value"))).isInstanceOf(IllegalArgumentException.class);

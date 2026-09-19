@@ -15,7 +15,7 @@ public class AuditLogReadRepository {
 
     public AuditLogPage read(int page, int size, LocalDateTime from, LocalDateTime to,
             LocalDate businessDate, String action, String module, UUID actorId, String search) {
-        StringBuilder where = new StringBuilder(" where 1=1");
+        StringBuilder where = new StringBuilder(" where coalesce(a.module_name,'') <> 'ACCOUNTS'");
         MapSqlParameterSource args = new MapSqlParameterSource();
         if (from != null) { where.append(" and a.performed_at >= :from"); args.addValue("from", Timestamp.valueOf(from)); }
         if (to != null) { where.append(" and a.performed_at < :to"); args.addValue("to", Timestamp.valueOf(to)); }

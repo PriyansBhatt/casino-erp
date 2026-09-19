@@ -21,7 +21,7 @@ import java.util.stream.Collectors;
 @Service
 public class UserService {
     public static final int DIRECTORY_LIMIT = 500;
-    private static final Set<String> ROLES = Set.of("SUPER_ADMIN", "DIRECTOR", "RECEPTIONIST", "CASHIER", "PIT_SUPERVISOR", "DEALER");
+    private static final Set<String> ROLES = Set.of("SUPER_ADMIN", "DIRECTOR", "RECEPTIONIST", "CASHIER", "PIT_SUPERVISOR", "DEALER", "STORE_MANAGER", "ACCOUNTANT_HEAD", "ACCOUNTS_MANAGER");
     private final UserRepository users;
     private final StaffProfileRepository staff;
     private final AuthenticatedUserService actors;
